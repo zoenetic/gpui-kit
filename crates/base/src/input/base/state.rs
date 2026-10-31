@@ -1302,6 +1302,19 @@ impl<M: InputModeKind> InputBaseState<M> {
         });
     }
 
+    /// Run `edits` so that every change they make undoes and redoes as one
+    /// step. Undo puts the cursors back as they were for the first change.
+    ///
+    /// Use it for one logical change made through several calls, such as
+    /// [`Self::insert`] at two places. Calls nest; only the outermost one
+    /// commits. Nothing is recorded if `edits` leaves the text unchanged.
+    pub fn transact<R>(&mut self, edits: impl FnOnce(&mut Self) -> R) -> R {
+        self.undo_manager.begin_transaction();
+        let result = edits(self);
+        self.undo_manager.commit_transaction();
+        result
+    }
+
     /// Replace text at the current cursor position.
     ///
     /// And the cursor will be moved to the end of replaced text.
@@ -6611,6 +6624,62 @@ mod tests {
             })
             .unwrap();
         assert_eq!(notifications.get(), 1, "an unchanged input must stay quiet");
+    }
+
+    #[gpui::test]
+    fn test_transact_undoes_and_redoes_as_one_step(cx: &mut TestAppContext) {
+        use crate::input::Position;
+
+        let view = InputView::build_textarea(cx, |state| state.default_value("one\ntwo\nthree"));
+        let mut cx = VisualTestContext::from_window(view.window_handle.into(), cx);
+        let value = |cx: &mut VisualTestContext| view.input.read_with(cx, |state, _| state.value());
+        let cursor =
+            |cx: &mut VisualTestContext| view.input.read_with(cx, |state, _| state.cursor());
+
+        cx.update(|window, cx| {
+            view.input.update(cx, |state, cx| {
+                state.transact(|state| {
+                    state.set_cursor_position(Position::new(0, 0), window, cx);
+                    state.insert("1 ", window, cx);
+                    state.set_cursor_position(Position::new(2, 0), window, cx);
+                    state.insert("3 ", window, cx);
+                });
+            })
+        });
+        assert_eq!(value(&mut cx), "1 one\ntwo\n3 three");
+
+        cx.update(|window, cx| {
+            view.input
+                .update(cx, |state, cx| state.undo(&Undo, window, cx))
+        });
+        assert_eq!(value(&mut cx), "one\ntwo\nthree");
+        assert_eq!(
+            cursor(&mut cx),
+            0,
+            "the cursor is back where the first change was made"
+        );
+
+        cx.update(|window, cx| {
+            view.input
+                .update(cx, |state, cx| state.redo(&Redo, window, cx))
+        });
+        assert_eq!(value(&mut cx), "1 one\ntwo\n3 three");
+    }
+
+    #[gpui::test]
+    fn test_transact_records_nothing_without_a_change(cx: &mut TestAppContext) {
+        let view = InputView::build_textarea(cx, |state| state.default_value("one"));
+        let mut cx = VisualTestContext::from_window(view.window_handle.into(), cx);
+
+        cx.update(|window, cx| {
+            view.input.update(cx, |state, cx| {
+                state.insert("1 ", window, cx);
+                // Nested and empty: neither adds an undo step.
+                state.transact(|state| state.transact(|_| {}));
+                state.undo(&Undo, window, cx);
+                assert_eq!(state.value(), "one", "undo reached the insert");
+            })
+        });
     }
 
     #[gpui::test]
