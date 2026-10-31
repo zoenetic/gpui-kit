@@ -3,8 +3,9 @@ use std::rc::Rc;
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
     AnyElement, App, DefiniteLength, Edges, ElementId, Entity, Global, Hsla,
-    InteractiveElement as _, IntoElement, MouseButton, ParentElement as _, Rems, RenderOnce, Role,
-    SharedString, StyleRefinement, Styled, TextAlign, TouchPhase, Window, div, px, relative,
+    InteractiveElement as _, IntoElement, MouseButton, ParentElement as _, Pixels, Rems,
+    RenderOnce, Role, SharedString, StyleRefinement, Styled, TextAlign, TouchPhase, Window, div,
+    px, relative,
 };
 
 use crate::button::{Button, ButtonRounded, ButtonVariants as _};
@@ -157,6 +158,8 @@ pub struct Input {
     role: RoleOverride,
     accessibility_id: Option<SharedString>,
     aria_label: Option<SharedString>,
+    /// The code editor's left padding, set by [`super::Editor::gutter_padding`].
+    gutter_padding: Option<Pixels>,
 
     /// An optional context menu builder to allow a custom context menu on the input.
     ///
@@ -273,6 +276,7 @@ impl Input {
             role: RoleOverride::default(),
             accessibility_id: None,
             aria_label: None,
+            gutter_padding: None,
             context_menu_builder: None,
             paste_handler: None,
             token_renderer: None,
@@ -318,6 +322,11 @@ impl Input {
     /// ```
     pub fn list<D: ListDelegate>(mut self, list: &Entity<ListState<D>>) -> Self {
         self.list = Some(Rc::new(list.clone()));
+        self
+    }
+
+    pub(crate) fn gutter_padding(mut self, padding: Option<Pixels>) -> Self {
+        self.gutter_padding = padding;
         self
     }
 
@@ -654,7 +663,8 @@ impl RenderOnce for Input {
                     right: self.size.input_px(),
                     bottom: self.size.input_py(),
                     left: if state.presentation(cx).is_code_editor() {
-                        self.size.input_px().min(px(6.))
+                        self.gutter_padding
+                            .unwrap_or_else(|| self.size.input_px().min(px(6.)))
                     } else {
                         self.size.input_px()
                     },
