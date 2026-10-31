@@ -4248,6 +4248,16 @@ impl<M: InputModeKind> InputBaseState<M> {
         ))
     }
 
+    /// Return the UTF-8 byte offset a click at a window position would place
+    /// the caret at: the boundary between characters nearest to it.
+    ///
+    /// The inverse of [`Self::range_to_bounds`]. A position past the end of a
+    /// row resolves to the end of that row. Returns `0` before the input is
+    /// first laid out.
+    pub fn offset_for_position(&self, position: Point<Pixels>) -> usize {
+        self.index_for_mouse_position(position).0
+    }
+
     /// Replace text in range in silent.
     ///
     /// This will not trigger any UI interaction, such as auto-completion.
@@ -6825,6 +6835,55 @@ mod tests {
             input.read_with(&cx, |state, _| state.diagnostic_popover().is_some()),
             "no hover at the bottom of a scrolled editor, bounds {bounds:?}"
         );
+    }
+
+    #[gpui::test]
+    fn test_offset_for_position_inverts_range_to_bounds(cx: &mut TestAppContext) {
+        use crate::input::Position;
+
+        let text = (0..200)
+            .map(|n| format!("line {n}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let view = InputView::build_editor(cx, |state| state.default_value(text));
+        let mut cx = VisualTestContext::from_window(view.window_handle.into(), cx);
+        cx.run_until_parked();
+
+        let check = |cx: &mut VisualTestContext, row: usize| {
+            view.input.read_with(cx, |state, _| {
+                let start = state.text.line_start_offset(row);
+                let end = state.text.line_end_offset(row);
+                // Like a click, a position resolves to the nearest boundary
+                // between characters. GPUI's `closest_index_for_x` gives the
+                // row's end for anywhere on its last glyph, so that one is left
+                // out.
+                for offset in start..end - 1 {
+                    let glyph = state.range_to_bounds(&(offset..offset + 1)).unwrap();
+                    let at = |fraction: f32| {
+                        point(glyph.left() + glyph.size.width * fraction, glyph.center().y)
+                    };
+                    assert_eq!(state.offset_for_position(at(0.25)), offset);
+                    assert_eq!(state.offset_for_position(at(0.75)), offset + 1);
+                }
+                let last = state.range_to_bounds(&(end - 1..end)).unwrap();
+                let past_the_end = last.right_center() + point(px(200.), px(0.));
+                assert_eq!(state.offset_for_position(past_the_end), end);
+            })
+        };
+        check(&mut cx, 1);
+
+        // Scrolled, positions still resolve to the text drawn under them.
+        cx.update(|window, cx| {
+            view.input.update(cx, |state, cx| {
+                state.set_cursor_position(Position::new(199, 0), window, cx);
+            })
+        });
+        cx.run_until_parked();
+        assert!(
+            view.input
+                .read_with(&cx, |state, _| state.scroll_handle.offset().y < px(0.))
+        );
+        check(&mut cx, 198);
     }
 
     #[gpui::test]
