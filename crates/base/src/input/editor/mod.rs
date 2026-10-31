@@ -259,6 +259,10 @@ impl crate::input::InputExtras for super::EditorExtras {
             .then_some(self.gutter_decorations_width)
     }
 
+    fn gutter_margin(&self) -> gpui::Pixels {
+        self.gutter_margin
+    }
+
     fn gutter_decorations(&self, range: std::ops::Range<usize>) -> Vec<&super::GutterDecoration> {
         self.gutter_decorations.intersecting(&[range])
     }
