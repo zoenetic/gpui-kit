@@ -1,8 +1,8 @@
 use std::rc::Rc;
 
 use gpui::{
-    App, DefiniteLength, Entity, IntoElement, RenderOnce, SharedString, StyleRefinement, Styled,
-    Window, prelude::FluentBuilder as _, relative,
+    App, DefiniteLength, Entity, IntoElement, Pixels, RenderOnce, SharedString, StyleRefinement,
+    Styled, Window, prelude::FluentBuilder as _, relative,
 };
 
 use super::{EditorState, Input};
@@ -27,6 +27,7 @@ pub struct Editor {
     tab_index: isize,
     role: RoleOverride,
     aria_label: Option<SharedString>,
+    gutter_padding: Option<Pixels>,
 
     /// An optional context menu builder to allow a custom context menu.
     ///
@@ -50,9 +51,18 @@ impl Editor {
             tab_index: 0,
             role: RoleOverride::default(),
             aria_label: None,
+            gutter_padding: None,
             context_menu_builder: None,
             paste_handler: None,
         }
+    }
+
+    /// Set the space between the editor's left edge and its gutter, before
+    /// the line numbers. The default is the size's horizontal padding, at
+    /// most 6 px.
+    pub fn gutter_padding(mut self, padding: impl Into<Pixels>) -> Self {
+        self.gutter_padding = Some(padding.into());
+        self
     }
 
     pub fn h(mut self, height: impl Into<DefiniteLength>) -> Self {
@@ -163,6 +173,7 @@ impl RenderOnce for Editor {
             .readonly(self.readonly)
             .tab_index(self.tab_index)
             .role(self.role)
+            .gutter_padding(self.gutter_padding)
             .when_some(self.height, |this, height| this.h(height))
             .when_some(self.aria_label, |this, label| this.aria_label(label))
             .when_some(self.context_menu_builder, |this, build| {
@@ -489,5 +500,44 @@ mod tests {
             assert!(editor.paste_handler.is_some());
             PasteProbe
         });
+    }
+
+    struct PaddedHarness {
+        state: Entity<EditorState>,
+        padding: Option<Pixels>,
+    }
+
+    impl Render for PaddedHarness {
+        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+            div().size_full().child(
+                Editor::new(&self.state)
+                    .when_some(self.padding, |this, padding| this.gutter_padding(padding)),
+            )
+        }
+    }
+
+    /// Where the first character starts, from the window's left edge.
+    fn text_left(cx: &mut TestAppContext, padding: Option<Pixels>) -> Pixels {
+        cx.update(crate::init);
+        let mut state = None;
+        let (_, cx) = cx.add_window_view(|window, cx| {
+            let editor = cx.new(|cx| EditorState::new(window, cx).default_value("fn main() {}"));
+            state = Some(editor.clone());
+            PaddedHarness {
+                state: editor,
+                padding,
+            }
+        });
+        let state = state.unwrap();
+        VisualTestContext::update(cx, |window, cx| window.draw(cx).clear(cx));
+        cx.read(|cx| state.read(cx).range_to_bounds(&(0..1)).unwrap().left())
+    }
+
+    #[gpui::test]
+    fn gutter_padding_moves_the_gutter_and_text(cx: &mut TestAppContext) {
+        let default = text_left(cx, None);
+        // The default is the medium size's 10 px padding, capped at 6 px.
+        assert_eq!(text_left(cx, Some(px(13.))) - default, px(7.));
+        assert_eq!(text_left(cx, Some(px(0.))) - default, px(-6.));
     }
 }
