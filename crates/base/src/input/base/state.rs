@@ -2801,12 +2801,9 @@ impl<M: InputModeKind> InputBaseState<M> {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        // Check if mouse is within bounds
-        let within_bounds = self
-            .last_bounds
-            .as_ref()
-            .map(|bounds| bounds.contains(&event.position))
-            .unwrap_or(false);
+        // Test against the viewport: `last_bounds` moves with the scrolled
+        // text, so it no longer covers the input once scrolled by a screen.
+        let within_bounds = self.input_bounds.contains(&event.position);
 
         if !within_bounds {
             // Clear hover when mouse leaves the input
@@ -6611,6 +6608,58 @@ mod tests {
             })
             .unwrap();
         assert_eq!(notifications.get(), 1, "an unchanged input must stay quiet");
+    }
+
+    /// Regression test: once an input scrolled by more than its own height,
+    /// mouse moves over the text were dropped, because `on_mouse_move` tested
+    /// the pointer against `last_bounds`, which moves with the text.
+    #[gpui::test]
+    fn test_mouse_move_reaches_text_scrolled_past_the_first_screen(cx: &mut TestAppContext) {
+        use crate::input::{Diagnostic, Position};
+
+        let text = (0..200)
+            .map(|n| format!("line {n}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let view = InputView::build_editor(cx, |state| state.default_value(text));
+        let mut cx = VisualTestContext::from_window(view.window_handle.into(), cx);
+        cx.update(|window, cx| {
+            view.input.update(cx, |state, cx| {
+                state.set_cursor_position(Position::new(199, 0), window, cx);
+                let text = state.text.clone();
+                let diagnostics = state.diagnostics_mut().unwrap();
+                diagnostics.reset(&text);
+                diagnostics.push(Diagnostic::new(
+                    Position::new(198, 0)..Position::new(198, 4),
+                    "here",
+                ));
+                cx.notify();
+            })
+        });
+        cx.run_until_parked();
+
+        let start = view
+            .input
+            .read_with(&cx, |state, _| state.text.line_start_offset(198));
+        let target = view.input.read_with(&cx, |state, _| {
+            let viewport = state.input_bounds();
+            assert!(
+                -state.scroll_handle.offset().y > viewport.size.height,
+                "scrolled by more than the viewport's height"
+            );
+            let target = state.range_to_bounds(&(start..start + 1)).unwrap();
+            assert!(viewport.contains(&target.center()), "the line is on screen");
+            target
+        });
+
+        cx.simulate_mouse_move(target.center(), None, gpui::Modifiers::default());
+        cx.run_until_parked();
+        view.input.read_with(&cx, |state, _| {
+            assert!(
+                state.diagnostic_popover().is_some(),
+                "the mouse reached the diagnostic under it"
+            );
+        });
     }
 
     #[gpui::test]
