@@ -7032,6 +7032,56 @@ mod tests {
     }
 
     #[gpui::test]
+    fn test_gutter_margin_moves_the_text(cx: &mut TestAppContext) {
+        let view = InputView::build_editor(cx, |state| state.default_value("one\ntwo"));
+        let mut cx = VisualTestContext::from_window(view.window_handle.into(), cx);
+        cx.run_until_parked();
+        let text_left = |cx: &mut VisualTestContext| {
+            view.input.read_with(cx, |state, _| {
+                state.range_to_bounds(&(0..1)).unwrap().left()
+            })
+        };
+        let before = text_left(&mut cx);
+
+        view.input
+            .update(&mut cx, |state, cx| state.set_gutter_margin(px(26.), cx));
+        cx.run_until_parked();
+        assert_eq!(text_left(&mut cx) - before, px(20.));
+
+        // Without line numbers the margin still sets the text apart.
+        cx.update(|window, cx| {
+            view.input.update(cx, |state, cx| {
+                state.set_line_number(false, window, cx);
+                state.set_folding(false, window, cx);
+            })
+        });
+        cx.run_until_parked();
+        let without_numbers = text_left(&mut cx);
+        view.input
+            .update(&mut cx, |state, cx| state.set_gutter_margin(px(6.), cx));
+        cx.run_until_parked();
+        assert_eq!(without_numbers - text_left(&mut cx), px(20.));
+    }
+
+    #[gpui::test]
+    fn test_set_gutter_margin_notifies_only_on_change(cx: &mut TestAppContext) {
+        use std::{cell::Cell, rc::Rc};
+
+        let view = InputView::new(cx);
+        let notifications = Rc::new(Cell::new(0));
+        let count = notifications.clone();
+        let _subscription =
+            cx.update(|cx| cx.observe(&view.input, move |_, _| count.set(count.get() + 1)));
+
+        view.input
+            .update(cx, |state, cx| state.set_gutter_margin(px(6.), cx));
+        assert_eq!(notifications.get(), 0, "the default margin is unchanged");
+        view.input
+            .update(cx, |state, cx| state.set_gutter_margin(px(12.), cx));
+        assert_eq!(notifications.get(), 1);
+    }
+
+    #[gpui::test]
     fn test_set_value_on_unfocused_input_stays_quiet(cx: &mut TestAppContext) {
         use std::{cell::Cell, rc::Rc};
 
@@ -12999,6 +13049,21 @@ impl InputBaseState<crate::input::EditorMode> {
             *l = line_number;
         }
         cx.notify();
+    }
+
+    /// Set the space between the gutter (line numbers, fold icons) and the
+    /// text. The default is 6 px.
+    pub fn gutter_margin(mut self, margin: Pixels) -> Self {
+        self.extras.gutter_margin = margin;
+        self
+    }
+
+    /// Set the space between the gutter and the text.
+    pub fn set_gutter_margin(&mut self, margin: Pixels, cx: &mut Context<Self>) {
+        if self.extras.gutter_margin != margin {
+            self.extras.gutter_margin = margin;
+            cx.notify();
+        }
     }
 
     /// Set enable/disable automatic closing brackets and quotes.
