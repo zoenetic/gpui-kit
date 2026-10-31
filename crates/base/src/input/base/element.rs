@@ -50,7 +50,7 @@ fn diagnostic_highlight_style(
 
 const BOTTOM_MARGIN_ROWS: usize = 3;
 pub(super) const RIGHT_MARGIN: Pixels = px(10.);
-pub(super) const LINE_NUMBER_RIGHT_MARGIN: Pixels = px(6.);
+pub(super) const DEFAULT_GUTTER_MARGIN: Pixels = px(6.);
 const FOLD_ICON_WIDTH: Pixels = px(14.);
 const FOLD_ICON_HITBOX_WIDTH: Pixels = px(18.);
 /// Space between the gutter decoration strip and the line numbers.
@@ -165,6 +165,7 @@ impl EditorScrollbarSnapshot {
             layout: EditorScrollbarLayout::new(
                 input_bounds,
                 last_layout.line_number_width,
+                state.extras.gutter_margin(),
                 scroll_size,
                 state.editor_paddings,
             ),
@@ -181,13 +182,14 @@ impl EditorScrollbarLayout {
     fn new(
         input_bounds: Bounds<Pixels>,
         line_number_width: Pixels,
+        gutter_margin: Pixels,
         scroll_size: Size<Pixels>,
         paddings: Edges<Pixels>,
     ) -> Self {
         let left = if line_number_width == px(0.) {
             px(0.)
         } else {
-            paddings.left + line_number_width - LINE_NUMBER_RIGHT_MARGIN
+            paddings.left + line_number_width - gutter_margin
         };
 
         let bounds = Bounds::new(
@@ -1423,9 +1425,9 @@ impl<M: InputModeKind> TextElement<M> {
                 None,
             );
 
-            empty_line_number.width + LINE_NUMBER_RIGHT_MARGIN
+            empty_line_number.width + state.extras.gutter_margin()
         } else if state.is_code_editor() {
-            LINE_NUMBER_RIGHT_MARGIN
+            state.extras.gutter_margin()
         } else {
             px(0.)
         };
@@ -1728,8 +1730,9 @@ impl<M: InputModeKind> TextElement<M> {
 
         // Second pass: create and prepaint icons
         let line_height = last_layout.line_height;
+        let gutter_margin = self.state.read(cx).extras.gutter_margin();
         let line_number_width =
-            last_layout.line_number_width - LINE_NUMBER_RIGHT_MARGIN - FOLD_ICON_HITBOX_WIDTH;
+            last_layout.line_number_width - gutter_margin - FOLD_ICON_HITBOX_WIDTH;
         let icon_relative_pos = point(
             (FOLD_ICON_HITBOX_WIDTH - FOLD_ICON_WIDTH).half(),
             (line_height - FOLD_ICON_WIDTH).half(),
@@ -5695,8 +5698,13 @@ mod tests {
             left: px(7.),
         };
 
-        let layout =
-            EditorScrollbarLayout::new(input_bounds, px(40.), size(px(1000.), px(200.)), paddings);
+        let layout = EditorScrollbarLayout::new(
+            input_bounds,
+            px(40.),
+            DEFAULT_GUTTER_MARGIN,
+            size(px(1000.), px(200.)),
+            paddings,
+        );
 
         assert_eq!(
             layout.bounds,
@@ -5705,8 +5713,13 @@ mod tests {
         assert_eq!(layout.scroll_size, size(px(972.), px(200.)));
         assert_eq!(layout.scroll_viewport_size, size(px(262.), px(80.)));
 
-        let layout_without_gutter =
-            EditorScrollbarLayout::new(input_bounds, px(0.), size(px(500.), px(120.)), paddings);
+        let layout_without_gutter = EditorScrollbarLayout::new(
+            input_bounds,
+            px(0.),
+            DEFAULT_GUTTER_MARGIN,
+            size(px(500.), px(120.)),
+            paddings,
+        );
 
         assert_eq!(
             layout_without_gutter.bounds,
