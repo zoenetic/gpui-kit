@@ -1,0 +1,89 @@
+# An agent reviews each pull request once it is ready: when it opens (not as
+# a draft), when a draft is marked ready, or when it reopens. It posts one
+# review of comments and never approves, blocks or pushes. Run it by hand
+# from the Actions tab to review a pull request again.
+#
+# Needs the CLAUDE_CODE_OAUTH_TOKEN repository secret (`claude setup-token`).
+name: Review
+
+on:
+  pull_request:
+    types: [opened, ready_for_review, reopened]
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: Pull request number
+        required: true
+        type: number
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+  id-token: write
+
+concurrency:
+  group: review-${{ github.event.pull_request.number || inputs.pr }}
+  cancel-in-progress: true
+
+jobs:
+  review:
+    name: Review
+    if: github.event_name == 'workflow_dispatch' || !github.event.pull_request.draft
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      PR: ${{ github.event.pull_request.number || inputs.pr }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: refs/pull/${{ env.PR }}/head
+          fetch-depth: 0
+
+      - uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          prompt: |
+            REPO: ${{ github.repository }}
+            PR NUMBER: ${{ env.PR }}
+
+            You are the standing reviewer for zoenetic/gpui-kit, a fork of
+            GPUI Kit that the Modeless IDE builds on (branch `modeless`). The
+            pull request is checked out. Review it, then post the review on
+            the pull request.
+
+            Before reviewing, read AGENTS.md (the project rules), and the
+            parts of docs/ARCHITECTURE.md, docs/STYLING-AND-MOTION.md,
+            website/docs/design-guides.md and website/docs/coding-guides.md
+            the change touches. Read `gh pr view`, `gh pr diff`, and the files
+            around the changed lines, not only the diff.
+
+            Look for:
+            - Bugs: wrong logic, edge cases, panics, races, layout or paint
+              regressions, work that blocks the UI thread.
+            - The AGENTS.md rules: gpui-base untouched unless asked, base
+              controls stay unstyled, fluent builder chains, no `pub` fields
+              on seam types, `#[non_exhaustive]` where fields are public,
+              backward compatibility for existing consumers.
+            - Upstream fit: each fix should stay small and self-contained so
+              it could go upstream later. Flag Modeless-specific code here.
+            - Licence: this fork is Apache-2.0. Flag anything copied from
+              GPL code, such as Modeless or Zed's GPL crates.
+            - Tests: behaviour changes are tested where it matters.
+
+            Post the review:
+            - One inline comment per concrete finding, on the line it
+              concerns, with mcp__github_inline_comment__create_inline_comment.
+              Say what goes wrong and when, and suggest a fix.
+            - Then one summary comment with `gh pr comment`, in the order
+              AGENTS.md asks: what the PR is for and its scope, whether the
+              requirement and approach are reasonable, then the findings by
+              severity (bug, rule, nit) and what you couldn't check (you
+              can't run anything).
+            - Plain English, short sentences. No praise padding.
+            - Start the summary with "Automated review by Claude." on its own
+              line, since an agent wrote it.
+            - Don't approve, request changes, push, or edit any file.
+          claude_args: |
+            --max-turns 60
+            --allowedTools "mcp__github_inline_comment__create_inline_comment,Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*),Bash(git log:*),Bash(git diff:*),Bash(git show:*),Read,Grep,Glob"
