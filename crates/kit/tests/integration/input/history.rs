@@ -295,6 +295,22 @@ fn emoji_navigation_and_both_delete_directions_round_trip(cx: &mut TestAppContex
 }
 
 #[gpui_kit::test]
+fn an_input_without_focus_undoes_and_redoes_by_method(cx: &mut TestAppContext) {
+    let (handle, content) = inputs(cx);
+    cx.update_window(handle.into(), |_, window, cx| {
+        window.click("text", cx);
+        window.input("ab", cx);
+        window.click("other", cx);
+        let text = content.read(cx).text.clone();
+        text.update(cx, |text, cx| text.undo_edit(window, cx));
+        assert_eq!(text.read(cx).value(), "");
+        text.update(cx, |text, cx| text.redo_edit(window, cx));
+        assert_eq!(text.read(cx).value(), "ab");
+    })
+    .unwrap();
+}
+
+#[gpui_kit::test]
 fn unicode_selection_deletion_restores_text_and_active_end_on_undo(cx: &mut TestAppContext) {
     let (handle, content) = inputs(cx);
     cx.update_window(handle.into(), |_, window, cx| {

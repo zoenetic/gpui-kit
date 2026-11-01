@@ -3331,22 +3331,24 @@ impl<M: InputModeKind> InputBaseState<M> {
     }
 
     pub(super) fn undo(&mut self, _: &Undo, window: &mut Window, cx: &mut Context<Self>) {
-        self.replay_history(true, window, cx);
+        self.undo_edit(window, cx);
     }
 
     pub(super) fn redo(&mut self, _: &Redo, window: &mut Window, cx: &mut Context<Self>) {
-        self.replay_history(false, window, cx);
+        self.redo_edit(window, cx);
     }
 
     /// Undo the last edit, as the [`Undo`] action does, without the input
     /// having focus or being on screen. Lets an application undo one edit
-    /// it made across several inputs together.
+    /// it made across several inputs together. Does nothing when the input
+    /// isn't editable or has nothing to undo.
     pub fn undo_edit(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.replay_history(true, window, cx);
     }
 
     /// Redo the last undone edit, as the [`Redo`] action does, without the
-    /// input having focus or being on screen.
+    /// input having focus or being on screen. Does nothing when the input
+    /// isn't editable or has nothing to redo.
     pub fn redo_edit(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.replay_history(false, window, cx);
     }
