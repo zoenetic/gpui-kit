@@ -3604,10 +3604,11 @@ impl<M: InputModeKind> Element for TextElement<M> {
                 // Paint the current line background
                 if is_active {
                     if let Some(bg_color) = active_line_color {
-                        window.paint_quad(fill(
-                            Bounds::new(p, size(bounds.size.width, height)),
-                            bg_color,
-                        ));
+                        // The text area stops short of the right padding;
+                        // the highlight runs on to the editor's edge, as
+                        // the gutter's runs to its left edge.
+                        let width = bounds.size.width + editor_paddings.right;
+                        window.paint_quad(fill(Bounds::new(p, size(width, height)), bg_color));
                     }
                 }
                 offset_y += height;
