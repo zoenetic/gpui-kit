@@ -1,14 +1,15 @@
 # An agent reviews each pull request once it is ready: when it opens (not as
-# a draft), when a draft is marked ready, or when it reopens. It posts one
-# review of comments and never approves, blocks or pushes. Run it by hand
-# from the Actions tab to review a pull request again.
+# a draft), when a draft is marked ready, or when it reopens. Each later push
+# gets a follow-up pass on what changed, up to MAX_PASSES passes in all. It
+# posts comments and never approves, blocks or pushes. Running it by hand
+# from the Actions tab ignores the cap.
 #
 # Needs the CLAUDE_CODE_OAUTH_TOKEN repository secret (`claude setup-token`).
 name: Review
 
 on:
   pull_request:
-    types: [opened, ready_for_review, reopened]
+    types: [opened, synchronize, ready_for_review, reopened]
   workflow_dispatch:
     inputs:
       pr:
@@ -21,6 +22,10 @@ permissions:
   pull-requests: write
   issues: write
   id-token: write
+
+env:
+  # Review passes per pull request, the first one included.
+  MAX_PASSES: 3
 
 concurrency:
   group: review-${{ github.event.pull_request.number || inputs.pr }}
@@ -35,17 +40,44 @@ jobs:
     env:
       PR: ${{ github.event.pull_request.number || inputs.pr }}
     steps:
-      - uses: actions/checkout@v6
+      # Each finished pass leaves one summary comment, so they count the
+      # passes. A run cancelled by a newer push leaves none and costs none.
+      - name: Count passes
+        id: passes
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          done=$(gh api --paginate "repos/${{ github.repository }}/issues/$PR/comments" \
+            --jq '.[] | select(.user.login == "claude[bot]" and (.body | startswith("Automated review by Claude"))) | .id' | wc -l)
+          echo "done=$done" >> "$GITHUB_OUTPUT"
+          echo "pass=$((done + 1))" >> "$GITHUB_OUTPUT"
+          if [ "${{ github.event_name }}" != workflow_dispatch ] && [ "$done" -ge "$MAX_PASSES" ]; then
+            echo "Skipping: $done of $MAX_PASSES passes done. Run it by hand to review again."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - if: steps.passes.outputs.skip != 'true'
+        uses: actions/checkout@v6
         with:
           ref: refs/pull/${{ env.PR }}/head
           fetch-depth: 0
 
-      - uses: anthropics/claude-code-action@v1
+      - if: steps.passes.outputs.skip != 'true'
+        uses: anthropics/claude-code-action@v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           prompt: |
             REPO: ${{ github.repository }}
             PR NUMBER: ${{ env.PR }}
+            PASS: ${{ steps.passes.outputs.pass }} of ${{ env.MAX_PASSES }}
+
+            If PASS is above 1, this is a follow-up: earlier passes left
+            summary comments starting "Automated review by Claude" (read
+            them with `gh pr view --comments`). Review only what changed
+            since the last one: `git diff` from the commit it names in its
+            "Reviewed" line, or from its time if it names none. Say which earlier findings are now fixed and which
+            still stand, without repeating their detail, and flag anything
+            new. If nothing new is wrong, say so in a line.
 
             You are the standing reviewer for zoenetic/gpui-kit, a fork of
             GPUI Kit that the Modeless IDE builds on (branch `modeless`). The
@@ -81,8 +113,9 @@ jobs:
               severity (bug, rule, nit) and what you couldn't check (you
               can't run anything).
             - Plain English, short sentences. No praise padding.
-            - Start the summary with "Automated review by Claude." on its own
-              line, since an agent wrote it.
+            - Start the summary with this line, since an agent wrote it:
+              Automated review by Claude (pass ${{ steps.passes.outputs.pass }} of ${{ env.MAX_PASSES }}).
+              End it with the commit you reviewed: "Reviewed <full sha>."
             - Don't approve, request changes, push, or edit any file.
           claude_args: |
             --max-turns 60
