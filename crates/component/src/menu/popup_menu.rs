@@ -14,6 +14,7 @@ use gpui::{
 use gpui::{ClickEvent, Half, MouseDownEvent, OwnedMenuItem, Point, Subscription};
 use gpui_base::TestSupportExt as _;
 
+use std::collections::HashSet;
 use std::rc::Rc;
 
 const CONTEXT: &str = "PopupMenu";
@@ -300,6 +301,9 @@ pub struct PopupMenu {
     bounds: Bounds<Pixels>,
     size: Size,
     check_side: Side,
+    /// Indexes of the items added as options that can be checked, so an
+    /// unchecked one reports its state rather than reading as a command.
+    checkable: HashSet<usize>,
 
     /// The parent menu of this menu, if this is a submenu
     parent_menu: Option<WeakEntity<Self>>,
@@ -344,6 +348,7 @@ impl PopupMenu {
             max_width: None,
             max_height: None,
             check_side: Side::Left,
+            checkable: HashSet::new(),
             bounds: Bounds::default(),
             scrollable: false,
             scroll_handle: ScrollHandle::default(),
@@ -581,6 +586,7 @@ impl PopupMenu {
         action: Box<dyn Action>,
         disabled: bool,
     ) -> Self {
+        self.checkable.insert(self.menu_items.len());
         self.add_menu_item(label, None, action, disabled, checked);
         self
     }
@@ -669,6 +675,7 @@ impl PopupMenu {
         F: Fn(&mut Window, &mut App) -> E + 'static,
         E: IntoElement,
     {
+        self.checkable.insert(self.menu_items.len());
         self.menu_items.push(
             PopupMenuItem::element(builder)
                 .action(action)
@@ -801,11 +808,13 @@ impl PopupMenu {
                     disabled,
                     ..
                 } => {
-                    self = self.menu_with_check_and_disabled(
-                        name,
-                        checked,
-                        action.boxed_clone(),
-                        disabled,
+                    // Every application menu action has a check state, so an
+                    // unchecked one is not known to be an option.
+                    self = self.item(
+                        PopupMenuItem::new(name)
+                            .action(action.boxed_clone())
+                            .disabled(disabled)
+                            .checked(checked),
                     )
                 }
                 OwnedMenuItem::Separator => {
@@ -1220,10 +1229,20 @@ impl PopupMenu {
     }
 
     /// Calculate the anchor corner and left offset for child submenu
-    fn update_submenu_menu_anchor(&mut self, window: &Window) {
+    fn update_submenu_menu_anchor(&mut self, window: &Window, cx: &App) {
         let bounds = self.bounds;
-        let max_width = self.max_width();
-        let (anchor, left) = if max_width + bounds.origin.x > window.bounds().size.width {
+        // Open the submenu on the left only when, placed at this menu's right
+        // edge, it would run past the window's. Its width is the one it was
+        // last drawn at, or this menu's own until it has been drawn.
+        let submenu_width = self
+            .selected_index
+            .and_then(|ix| match self.menu_items.get(ix) {
+                Some(PopupMenuItem::Submenu { menu, .. }) => Some(menu.read(cx).bounds.size.width),
+                _ => None,
+            })
+            .filter(|width| *width > Pixels::ZERO)
+            .unwrap_or(bounds.size.width);
+        let (anchor, left) = if bounds.right() + submenu_width > window.viewport_size().width {
             (Anchor::TopRight, -px(16.))
         } else {
             (Anchor::TopLeft, bounds.size.width - px(8.))
@@ -1296,7 +1315,10 @@ impl PopupMenu {
 
                 cx.notify();
             }))
-            .when_some(item.a11y_label(), |this, label| this.aria_label(label));
+            .when_some(item.a11y_label(), |this, label| this.aria_label(label))
+            .checked(
+                (item.is_checked() || self.checkable.contains(&ix)).then(|| item.is_checked()),
+            );
 
         match item {
             PopupMenuItem::Separator => this
@@ -1480,7 +1502,7 @@ struct RenderOptions {
 
 impl Render for PopupMenu {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        self.update_submenu_menu_anchor(window);
+        self.update_submenu_menu_anchor(window, cx);
 
         // Submenus attached via the public `item()` + `PopupMenuItem::submenu()`
         // path (from contexts that only have the menu value, e.g. a table
@@ -1558,7 +1580,21 @@ impl Render for PopupMenu {
                             .filter(|(ix, item)| !(*ix + 1 == items_count && item.is_separator()))
                             .map(|(ix, item)| self.render_item(ix, item, options, window, cx)),
                     )
-                    .on_prepaint(move |bounds, _, cx| view.update(cx, |r, _| r.bounds = bounds)),
+                    .on_prepaint(move |bounds, _, cx| {
+                        view.update(cx, |menu, cx| {
+                            let width_changed = menu.bounds.size.width != bounds.size.width;
+                            menu.bounds = bounds;
+                            if width_changed {
+                                if let Some(parent) = menu
+                                    .parent_menu
+                                    .as_ref()
+                                    .and_then(|parent| parent.upgrade())
+                                {
+                                    parent.update(cx, |_, cx| cx.notify());
+                                }
+                            }
+                        });
+                    }),
             )
             .when(self.scrollable, |this| {
                 this.vertical_scrollbar(&self.scroll_handle)
