@@ -226,6 +226,27 @@ fn to_tree_sitter_edit(edit: BaseInputEdit) -> InputEdit {
     }
 }
 
+/// The line a fold over `node` ends on, which stays visible.
+///
+/// A node that closes with a bracket keeps that line in view, so a folded
+/// block reads `fn f() {` … `}`. One that doesn't, such as a list of imports
+/// or a block that ends with its last statement, folds through its own last
+/// line, and the line after it stays in view instead.
+fn fold_end(node: tree_sitter::Node, last_row: usize) -> usize {
+    let end = node.end_position();
+    // The node's last token.
+    let mut last = node;
+    while let Some(child) = last.child(last.child_count().saturating_sub(1) as u32) {
+        last = child;
+    }
+    let closed = end.column == 0 || matches!(last.kind(), "}" | ")" | "]" | ">");
+    if closed || end.row >= last_row {
+        end.row
+    } else {
+        end.row + 1
+    }
+}
+
 fn extract_fold_ranges(tree: &tree_sitter::Tree) -> Vec<FoldRange> {
     extract_fold_ranges_in_range(tree, 0..usize::MAX)
 }
@@ -234,29 +255,60 @@ fn extract_fold_ranges_in_range(
     tree: &tree_sitter::Tree,
     byte_range: Range<usize>,
 ) -> Vec<FoldRange> {
-    fn collect(node: tree_sitter::Node, bytes: &Range<usize>, ranges: &mut Vec<FoldRange>) {
+    fn collect(
+        node: tree_sitter::Node,
+        bytes: &Range<usize>,
+        last_row: usize,
+        ranges: &mut Vec<FoldRange>,
+    ) {
         if node.end_byte() <= bytes.start || node.start_byte() >= bytes.end {
             return;
         }
         let start = node.start_position().row;
-        let end = node.end_position().row;
+        let end = fold_end(node, last_row);
         if end.saturating_sub(start) < 2 {
             return;
         }
         ranges.push(FoldRange::new(start, end));
         let mut cursor = node.walk();
         for child in node.named_children(&mut cursor) {
-            collect(child, bytes, ranges);
+            collect(child, bytes, last_row, ranges);
         }
     }
 
     let root = tree.root_node();
+    let last_row = root.end_position().row;
     let mut ranges = Vec::new();
     let mut cursor = root.walk();
     for child in root.named_children(&mut cursor) {
-        collect(child, &byte_range, &mut ranges);
+        collect(child, &byte_range, last_row, &mut ranges);
     }
     ranges.sort_by_key(|range| range.start_line);
     ranges.dedup_by_key(|range| range.start_line);
     ranges
+}
+
+#[cfg(all(test, feature = "tree-sitter-kotlin", feature = "tree-sitter-rust"))]
+mod tests {
+    use super::extract_fold_ranges;
+    use gpui_base::input::FoldRange;
+
+    fn folds(language: tree_sitter::Language, text: &str) -> Vec<FoldRange> {
+        let mut parser = tree_sitter::Parser::new();
+        parser.set_language(&language).unwrap();
+        extract_fold_ranges(&parser.parse(text, None).unwrap())
+    }
+
+    /// A block closed by a bracket keeps the bracket's line in view; a list
+    /// of imports, which has none, folds through its last import.
+    #[test]
+    fn test_fold_ranges_end_after_unbracketed_nodes() {
+        let kotlin = "package a\n\nimport a.B\nimport a.C\nimport a.D\n\nclass A\n";
+        let ranges = folds(tree_sitter_kotlin_sg::LANGUAGE.into(), kotlin);
+        assert!(ranges.contains(&FoldRange::new(2, 5)), "{ranges:?}");
+
+        let rust = "fn a() {\n    1;\n    2;\n}\n";
+        let ranges = folds(tree_sitter_rust::LANGUAGE.into(), rust);
+        assert!(ranges.contains(&FoldRange::new(0, 3)), "{ranges:?}");
+    }
 }
