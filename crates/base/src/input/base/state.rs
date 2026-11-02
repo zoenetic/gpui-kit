@@ -9243,6 +9243,33 @@ mod tests {
         });
     }
 
+    /// `set_folded` folds and unfolds a candidate, and leaves a line that
+    /// isn't one alone.
+    #[gpui::test]
+    fn test_set_folded(cx: &mut TestAppContext) {
+        use crate::input::FoldRange;
+
+        let view = InputView::<EditorMode>::new(cx);
+        let mut cx = VisualTestContext::from_window(view.window_handle.into(), cx);
+        let input = view.input;
+
+        cx.update(|window, cx| {
+            input.update(cx, |state, cx| {
+                state.set_value("a\nb\nc\nd\ne", window, cx);
+                state.apply_highlighter_fold_candidates(vec![FoldRange::new(0, 3)], cx);
+                assert!(state.set_folded(0, true, cx));
+                assert!(state.display_map.is_buffer_line_hidden(1));
+                assert!(state.display_map.is_buffer_line_hidden(2));
+                assert!(!state.display_map.is_buffer_line_hidden(3));
+                // Already folded, and not a candidate: nothing changes.
+                assert!(!state.set_folded(0, true, cx));
+                assert!(!state.set_folded(1, true, cx));
+                assert!(state.set_folded(0, false, cx));
+                assert!(!state.display_map.is_buffer_line_hidden(1));
+            });
+        });
+    }
+
     /// Losing focus hides the hover popover but keeps the decorations.
     ///
     /// Both used to be dropped by one call, so clicking away threw away
@@ -12441,6 +12468,26 @@ impl InputBaseState<crate::input::EditorMode> {
         for start_line in covering {
             self.display_map.set_folded(start_line, false);
         }
+        cx.notify();
+        true
+    }
+
+    /// Fold or unfold the fold candidate that starts on `start_line`, as a
+    /// click on its gutter icon does.
+    ///
+    /// Use this to fold a range from the application, such as a file's
+    /// imports when it opens. A line that doesn't start a fold candidate,
+    /// or an editor without folding, is left as it is.
+    ///
+    /// Returns whether the fold changed.
+    pub fn set_folded(&mut self, start_line: usize, folded: bool, cx: &mut Context<Self>) -> bool {
+        if !self.mode.is_folding()
+            || !self.display_map.is_fold_candidate(start_line)
+            || self.display_map.is_folded_at(start_line) == folded
+        {
+            return false;
+        }
+        self.display_map.set_folded(start_line, folded);
         cx.notify();
         true
     }
