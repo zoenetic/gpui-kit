@@ -1982,6 +1982,35 @@ impl<M: InputModeKind> InputBaseState<M> {
     }
 
     /// Get indent string of the next line, relative to the given `offset`.
+    /// The indent a line after the nearest non-blank line above
+    /// `line_start` gets: that line's own, one level deeper if it opens a
+    /// block. `None` when every line above is blank.
+    fn indent_after_line_above(&mut self, line_start: usize) -> Option<String> {
+        let row = self.text.offset_to_point(line_start).row;
+        let (start, end) = (0..row).rev().find_map(|row| {
+            let start = self.text.line_start_offset(row);
+            let end = self.text.line_end_offset(row);
+            let line = self.text.slice(start..end);
+            (!line.chars().all(char::is_whitespace)).then_some((start, end))
+        })?;
+        let line: String = self.text.slice(start..end).chars().collect();
+        let mut indent: String = line.chars().take_while(|c| c.is_whitespace()).collect();
+        if let Some(rules) = self.mode.language_config() {
+            if self.mode.is_smart_indent()
+                && M::editing_syntax_context(self, end) == crate::input::SyntaxContext::Code
+                && rules.opens_indent(line.trim_end())
+            {
+                let tab = self.mode.tab_size();
+                if tab.hard_tabs {
+                    indent.push('\t');
+                } else {
+                    indent.extend(std::iter::repeat_n(' ', tab.tab_size));
+                }
+            }
+        }
+        Some(indent)
+    }
+
     pub(super) fn indent_of_next_line_at(&mut self, offset: usize) -> String {
         if self.is_single_line() {
             return "".into();
@@ -2014,6 +2043,21 @@ impl<M: InputModeKind> InputBaseState<M> {
 
         if next_indent.len() > current_indent.len() {
             return next_indent;
+        }
+
+        // A blank line keeps the indent of the code above it, as it would
+        // have had if typed there: Enter inside a block stays in the block.
+        let blank = self
+            .text
+            .slice(current_line_start_pos..next_line_start_pos)
+            .chars()
+            .all(char::is_whitespace);
+        if blank {
+            if let Some(indent) = self.indent_after_line_above(current_line_start_pos) {
+                if indent.len() > current_indent.len() {
+                    return indent;
+                }
+            }
         }
 
         // Smart indent: one extra level after lines ending with a trigger.
@@ -11982,6 +12026,46 @@ mod tests {
             });
         });
         assert_cursors(&mut cx, &view.input, "fn main() {\n  |");
+    }
+
+    #[gpui::test]
+    fn test_enter_on_a_blank_line_keeps_the_indent_above(cx: &mut TestAppContext) {
+        let cases = [
+            // An empty line in a block: the block's indent.
+            (
+                "fn main() {\n  a();\n|\n  b();\n}",
+                "fn main() {\n  a();\n\n  |\n  b();\n}",
+            ),
+            // Right after the line opening the block: one level in.
+            ("fn main() {\n|\n}", "fn main() {\n\n  |\n}"),
+            // Already indented further: kept.
+            ("{\n    |\n}", "{\n    \n    |\n}"),
+            // Nothing above: column one.
+            ("|", "\n|"),
+        ];
+        for (text, expected) in cases {
+            let view = InputView::<EditorMode>::new(cx);
+            let mut cx = VisualTestContext::from_window(view.window_handle.into(), cx);
+            setup_cursors(&mut cx, &view.input, text);
+            cx.update(|window, cx| {
+                view.input.update(cx, |state, cx| {
+                    state.enter(
+                        &Enter {
+                            secondary: false,
+                            shift: false,
+                        },
+                        window,
+                        cx,
+                    );
+                });
+            });
+            // Written out, since the cursor specs drop empty lines.
+            let (text, cursor) = view
+                .input
+                .read_with(&cx, |state, _| (state.text.to_string(), state.cursor()));
+            assert_eq!(text, expected.replace('|', "") + "\n");
+            assert_eq!(cursor, expected.find('|').unwrap());
+        }
     }
 
     #[gpui::test]
