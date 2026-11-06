@@ -3146,7 +3146,10 @@ impl<M: InputModeKind> InputBaseState<M> {
             .position(|&line| line == row)
         {
             let line = &last_layout.lines[vi];
-            let local_offset = offset.saturating_sub(last_layout.visible_line_byte_offsets[vi]);
+            // Past a very long line's drawn part: scroll to the end of what's drawn.
+            let local_offset = offset
+                .saturating_sub(last_layout.visible_line_byte_offsets[vi])
+                .min(line.len());
             if let Some(pos) = line.position_for_index(local_offset, last_layout, false) {
                 let bounds_width = bounds.size.width - last_layout.line_number_width;
                 let col_offset_x = pos.x;
