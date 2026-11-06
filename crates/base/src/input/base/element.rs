@@ -2529,6 +2529,7 @@ impl<M: InputModeKind> TextElement<M> {
             let mut line_has_background = false;
 
             for range in &line_item.wrapped_lines {
+                let range = drawn_part(&line_text, range.clone());
                 let line_runs = runs_for_range(runs, run_offset, &range);
                 let line_runs = if bg_segments.is_empty() {
                     line_runs
@@ -3247,7 +3248,10 @@ impl<M: InputModeKind> Element for TextElement<M> {
             longest_line_width = match cached {
                 Some((_, width)) => width.max(widest_laid_out_line),
                 None => {
-                    let longest_line: SharedString = longest_line.to_string().into();
+                    // As drawn: a line past `MAX_DRAWN_LINE_CHARS` is cut there.
+                    let longest_line = longest_line.to_string();
+                    let drawn = drawn_part(&longest_line, 0..longest_line.len());
+                    let longest_line: SharedString = longest_line[drawn].to_string().into();
                     let tab_stop =
                         tab_stop_width(window.text_system(), &key.font, text_size, key.tab_size);
                     let shaped = window.text_system().shape_line(
@@ -3959,6 +3963,21 @@ fn placeholder_line_runs<'a>(
 /// Get the runs for the given range.
 ///
 /// The range is the byte range of the wrapped line.
+/// The most characters of one line that are laid out and drawn. Shaping and
+/// painting cost grows with a line's length on every frame, so a very long
+/// line (minified code, a one-line data file) would stall the window; past
+/// this many characters the rest of the line stays in the text, for editing,
+/// search and saving, but isn't drawn. VS Code stops at the same count.
+const MAX_DRAWN_LINE_CHARS: usize = 10_000;
+
+/// `range` of `line`, cut to its first [`MAX_DRAWN_LINE_CHARS`] characters.
+fn drawn_part(line: &str, range: Range<usize>) -> Range<usize> {
+    match line[range.clone()].char_indices().nth(MAX_DRAWN_LINE_CHARS) {
+        Some((end, _)) => range.start..range.start + end,
+        None => range,
+    }
+}
+
 pub(super) fn runs_for_range(
     runs: &[TextRun],
     line_offset: usize,
@@ -4179,6 +4198,23 @@ mod tests {
         AppContext as _, Context, EntityInputHandler as _, ListAlignment, ListOffset, ListState,
         Render, TestAppContext, VisualTestContext, div, list, prelude::FluentBuilder as _,
     };
+
+    #[test]
+    fn a_long_line_is_drawn_up_to_its_limit_in_characters() {
+        let short = "fn main() {}";
+        assert_eq!(drawn_part(short, 0..short.len()), 0..short.len());
+        // Multi-byte characters: the cut is a character count, on a boundary.
+        let long = "é".repeat(MAX_DRAWN_LINE_CHARS + 5);
+        assert_eq!(
+            drawn_part(&long, 0..long.len()),
+            0..MAX_DRAWN_LINE_CHARS * "é".len()
+        );
+        // A range starting inside the line keeps its start.
+        assert_eq!(
+            drawn_part(&long, 2..long.len()),
+            2..2 + MAX_DRAWN_LINE_CHARS * "é".len()
+        );
+    }
 
     #[test]
     fn line_number_column_stays_at_three_digits_then_grows_up_to_seven() {
