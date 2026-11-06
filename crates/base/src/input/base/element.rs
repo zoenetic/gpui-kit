@@ -871,7 +871,8 @@ impl<M: InputModeKind> TextElement<M> {
             if let Some(vi) = visible_buffer_lines.iter().position(|&bl| bl == row) {
                 let line = &lines[vi];
                 let line_start = last_layout.visible_line_byte_offsets[vi];
-                let local = offset.saturating_sub(line_start);
+                // Past a very long line's drawn part: at the end of what's drawn.
+                let local = offset.saturating_sub(line_start).min(line.len());
                 if let Some(pos) = line.position_for_index(local, last_layout, affinity) {
                     return line_origin + pos;
                 }

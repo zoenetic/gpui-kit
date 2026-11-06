@@ -1369,3 +1369,44 @@ fn visual_end_does_not_scroll_a_fully_visible_wrapped_editor_row(cx: &mut TestAp
     })
     .unwrap();
 }
+
+#[gpui_kit::test]
+fn a_caret_past_a_long_line_s_drawn_part_sits_at_its_end(cx: &mut TestAppContext) {
+    // Only the first 10,000 characters of a line are drawn. A caret past
+    // them is drawn where the drawn text ends, not back at the line's start.
+    let value: &'static str = format!("{}\nb", "a".repeat(10_005)).leak();
+    let (handle, state) = editor(cx, "plaintext", value);
+    let caret_x = |keys: &[&str], cx: &mut TestAppContext| {
+        cx.update_window(handle.into(), |_, window, cx| {
+            for key in keys {
+                window.press(key, cx);
+            }
+        })
+        .unwrap();
+        cx.run_until_parked();
+        cx.update_window(handle.into(), |_, window, cx| {
+            window.render_frame(cx);
+            state
+                .read(cx)
+                .prepaint_caret_geometry()
+                .expect("prepaint stashes caret geometry")
+                .cursor_bounds()
+                .origin
+                .x
+        })
+        .unwrap()
+    };
+    cx.update_window(handle.into(), |_, window, cx| {
+        state.update(cx, |state, cx| state.set_soft_wrap(false, window, cx));
+        window.click(("input", state.entity_id()), cx);
+    })
+    .unwrap();
+
+    let past_the_cut = caret_x(&["secondary-home", "end"], cx);
+    assert_eq!(
+        state.read_with(cx, |state, _| state.selected_range()),
+        10_005..10_005
+    );
+    let at_the_cut = caret_x(&["left", "left", "left", "left", "left"], cx);
+    assert_eq!(past_the_cut, at_the_cut);
+}
