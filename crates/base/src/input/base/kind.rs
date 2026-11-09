@@ -29,8 +29,8 @@ use ropey::Rope;
 use super::decorations::DecorationCollections;
 use super::lsp::{ContextMenuContent, HoverDefinition, InlineCompletion};
 use crate::input::{
-    GutterDecoration, HighlightStyleResolver, InputEdit, InputHighlighter, OverviewRulerDecoration,
-    RangeDecoration, SyntaxContext, TextDecoration,
+    GutterDecoration, HighlightStyleResolver, Inlay, InputEdit, InputHighlighter,
+    OverviewRulerDecoration, RangeDecoration, SyntaxContext, TextDecoration,
 };
 use crate::input::{HoverPopoverState, Lsp};
 use gpui::Task;
@@ -85,6 +85,11 @@ pub trait InputExtras: Default + 'static {
 
     /// Geometric decorations intersecting visible, non-folded buffer spans.
     fn range_decorations(&self, _ranges: &[std::ops::Range<usize>]) -> Vec<&RangeDecoration> {
+        Vec::new()
+    }
+
+    /// Inlays at offsets inside visible, non-folded buffer spans.
+    fn inlays(&self, _ranges: &[std::ops::Range<usize>]) -> Vec<&Inlay> {
         Vec::new()
     }
 
@@ -386,6 +391,7 @@ pub struct EditorExtras {
     pub(crate) gutter_decorations_width: gpui::Pixels,
     pub(crate) gutter_margin: gpui::Pixels,
     pub(crate) overview_ruler_decorations: DecorationCollections<OverviewRulerDecoration>,
+    pub(crate) inlays: DecorationCollections<Inlay>,
     pub(crate) inline_completion: InlineCompletion,
     pub(crate) context_menu_content: ContextMenuContent,
     pub(crate) hover_popover: Option<HoverPopoverState>,
@@ -403,6 +409,7 @@ impl Default for EditorExtras {
             gutter_decorations_width: gpui::px(3.),
             gutter_margin: super::element::DEFAULT_GUTTER_MARGIN,
             overview_ruler_decorations: DecorationCollections::default(),
+            inlays: DecorationCollections::default(),
             inline_completion: InlineCompletion::default(),
             context_menu_content: ContextMenuContent::default(),
             hover_popover: None,

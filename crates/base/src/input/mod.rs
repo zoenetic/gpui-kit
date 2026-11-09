@@ -88,7 +88,7 @@ pub use base::{InputBase, InputContextMenuCapabilities, InputStyles};
 pub use blink_cursor::CursorBlink;
 pub use cursor::Selection;
 pub use decorations::{
-    GutterDecoration, GutterDecorationCollection, OverviewRulerDecoration,
+    GutterDecoration, GutterDecorationCollection, Inlay, InlayCollection, OverviewRulerDecoration,
     OverviewRulerDecorationCollection, OverviewRulerLane, RangeDecoration,
     RangeDecorationCollection, RangeDecorationStyle, TextDecoration, TextDecorationCollection,
 };
