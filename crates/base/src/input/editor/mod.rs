@@ -41,6 +41,7 @@ impl InputModeKind for EditorMode {
         state.extras.range_decorations.clear();
         state.extras.gutter_decorations.clear();
         state.extras.overview_ruler_decorations.clear();
+        state.extras.inlays.clear();
     }
 
     fn editing_syntax_context(state: &InputBaseState<Self>, offset: usize) -> super::SyntaxContext {
@@ -65,6 +66,7 @@ impl InputModeKind for EditorMode {
             .extras
             .overview_ruler_decorations
             .adjust_for_edit(range, new_len);
+        state.extras.inlays.adjust_for_edit(range, new_len);
     }
 
     fn refresh_language_features(
@@ -251,6 +253,10 @@ impl crate::input::InputExtras for super::EditorExtras {
 
     fn range_decorations(&self, ranges: &[std::ops::Range<usize>]) -> Vec<&super::RangeDecoration> {
         self.range_decorations.intersecting(ranges)
+    }
+
+    fn inlays(&self, ranges: &[std::ops::Range<usize>]) -> Vec<&super::Inlay> {
+        self.inlays.intersecting(ranges)
     }
 
     fn gutter_decorations_width(&self) -> Option<gpui::Pixels> {

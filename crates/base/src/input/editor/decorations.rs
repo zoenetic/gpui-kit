@@ -1,7 +1,7 @@
 use crate::input::EditorMode;
 use std::{collections::BTreeMap, ops::Range};
 
-use gpui::{App, Context, HighlightStyle, Hsla, Pixels, WeakEntity};
+use gpui::{App, Context, HighlightStyle, Hsla, Pixels, SharedString, WeakEntity};
 use ropey::Rope;
 use sum_tree::Bias;
 
@@ -514,6 +514,9 @@ pub(crate) trait TrackedDecoration {
     /// than nothing. Such a range survives the edits that empty it and stays before
     /// text inserted at its offset.
     const KEEPS_EMPTY: bool = false;
+    /// Whether a kept empty range moves after text inserted at its offset, as an
+    /// inlay does, rather than staying before it.
+    const FOLLOWS_INSERT: bool = false;
 
     fn range(&self) -> &Range<usize>;
     fn range_mut(&mut self) -> &mut Range<usize>;
@@ -556,6 +559,143 @@ impl TrackedDecoration for OverviewRulerDecoration {
     }
     fn range_mut(&mut self) -> &mut Range<usize> {
         &mut self.range
+    }
+}
+
+/// Text drawn inside a line that is not part of the document, such as a
+/// suggested completion at the cursor or a type hint after a name.
+///
+/// An inlay sits at one UTF-8 byte offset. Text after it on the same visual line
+/// moves right by its width. It is not in [`InputBaseState::value`]: the cursor,
+/// clicks and selections step over it, and it is never copied, searched or saved.
+/// The caret at its offset is drawn before it.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Inlay {
+    range: Range<usize>,
+    text: SharedString,
+    color: Option<Hsla>,
+    background: Option<Hsla>,
+}
+
+impl Inlay {
+    /// Create an inlay showing `text` at `offset`, in the editor's muted
+    /// foreground color. `text` is one line; control characters are refused.
+    pub fn new(offset: usize, text: impl Into<SharedString>) -> Self {
+        Self {
+            range: offset..offset,
+            text: text.into(),
+            color: None,
+            background: None,
+        }
+    }
+
+    /// The UTF-8 byte offset the inlay is drawn at.
+    pub fn offset(&self) -> usize {
+        self.range.start
+    }
+
+    /// The text drawn.
+    pub fn text(&self) -> &SharedString {
+        &self.text
+    }
+
+    /// The text color, or `None` for the editor's muted foreground.
+    pub fn color(&self) -> Option<Hsla> {
+        self.color
+    }
+
+    /// The color behind the text, if any.
+    pub fn background(&self) -> Option<Hsla> {
+        self.background
+    }
+
+    /// Draw the text in `color`.
+    pub fn with_color(mut self, color: Hsla) -> Self {
+        self.color = Some(color);
+        self
+    }
+
+    /// Fill behind the text with `color`.
+    pub fn with_background(mut self, color: Hsla) -> Self {
+        self.background = Some(color);
+        self
+    }
+
+    fn is_valid(&self) -> bool {
+        !self.text.is_empty()
+            && !self
+                .text
+                .chars()
+                .any(|c| c.is_control() || matches!(c, '\u{2028}' | '\u{2029}'))
+    }
+}
+
+impl TrackedDecoration for Inlay {
+    const KEEPS_EMPTY: bool = true;
+    const FOLLOWS_INSERT: bool = true;
+
+    fn range(&self) -> &Range<usize> {
+        &self.range
+    }
+    fn range_mut(&mut self) -> &mut Range<usize> {
+        &mut self.range
+    }
+}
+
+fn normalize_inlays(text: &Rope, inlays: Vec<Inlay>) -> Vec<Inlay> {
+    normalize(text, inlays.into_iter().filter(Inlay::is_valid).collect())
+}
+
+/// An independently managed collection of [`Inlay`] values, such as one for a
+/// language server's hints and one for a suggested completion.
+///
+/// Each clone refers to the same collection. Dropping a handle does not clear it.
+/// Call [`Self::clear`] to empty it or [`Self::dispose`] to release it. Calls after
+/// disposal or after the editor is dropped do nothing.
+#[non_exhaustive]
+#[derive(Clone, Debug)]
+pub struct InlayCollection {
+    state: WeakEntity<InputBaseState<EditorMode>>,
+    id: DecorationCollectionId,
+}
+
+impl InlayCollection {
+    /// Replace this collection's inlays.
+    pub fn set(&self, inlays: Vec<Inlay>, cx: &mut App) {
+        let _ = self.state.update(cx, |state, cx| {
+            let inlays = normalize_inlays(&state.text, inlays);
+            if state.extras.inlays.set(self.id, inlays) {
+                cx.notify();
+            }
+        });
+    }
+
+    /// Empty this collection without invalidating its handles.
+    pub fn clear(&self, cx: &mut App) {
+        self.set(Vec::new(), cx);
+    }
+
+    /// Release this collection, invalidating all of its cloned handles.
+    pub fn dispose(&self, cx: &mut App) {
+        let _ = self.state.update(cx, |state, cx| {
+            if state.extras.inlays.remove(self.id) {
+                cx.notify();
+            }
+        });
+    }
+
+    /// Read this collection's inlays, with their offsets as edits have moved them.
+    pub fn inlays(&self, cx: &App) -> Vec<Inlay> {
+        self.state
+            .read_with(cx, |state, _| {
+                state
+                    .extras
+                    .inlays
+                    .get(self.id)
+                    .unwrap_or_default()
+                    .to_vec()
+            })
+            .unwrap_or_default()
     }
 }
 
@@ -707,7 +847,16 @@ impl<T: TrackedDecoration> DecorationCollections<T> {
     pub(super) fn adjust_for_edit(&mut self, edited_range: &Range<usize>, inserted_len: usize) {
         for entry in self.entries.values_mut() {
             let len = entry.decorations.len();
-            if len == 0 || entry.index.max_ends[len / 2] <= edited_range.start {
+            let max_end = if len == 0 {
+                0
+            } else {
+                entry.index.max_ends[len / 2]
+            };
+            // A point at the edit's start still moves when it follows insertions.
+            if len == 0
+                || max_end < edited_range.start
+                || (!T::FOLLOWS_INSERT && max_end == edited_range.start)
+            {
                 continue;
             }
             let mut remap = Vec::with_capacity(len);
@@ -715,7 +864,11 @@ impl<T: TrackedDecoration> DecorationCollections<T> {
             entry.decorations.retain_mut(|decoration| {
                 let range = decoration.range();
                 *decoration.range_mut() = if T::KEEPS_EMPTY && range.is_empty() {
-                    let offset = adjust_point_for_edit(range.start, edited_range, inserted_len);
+                    let offset = if T::FOLLOWS_INSERT {
+                        adjust_following_point_for_edit(range.start, edited_range, inserted_len)
+                    } else {
+                        adjust_point_for_edit(range.start, edited_range, inserted_len)
+                    };
                     offset..offset
                 } else {
                     adjust_range_for_edit(range, edited_range, inserted_len)
@@ -845,6 +998,22 @@ fn adjust_point_for_edit(offset: usize, edited_range: &Range<usize>, inserted_le
     }
 }
 
+/// A point moves after text inserted at its offset, and a replacement that covers
+/// it moves it to where the replacement ends.
+fn adjust_following_point_for_edit(
+    offset: usize,
+    edited_range: &Range<usize>,
+    inserted_len: usize,
+) -> usize {
+    if offset < edited_range.start {
+        offset
+    } else if offset >= edited_range.end {
+        (offset + inserted_len).saturating_sub(edited_range.len())
+    } else {
+        edited_range.start + inserted_len
+    }
+}
+
 fn normalize<T: TrackedDecoration>(text: &Rope, decorations: Vec<T>) -> Vec<T> {
     decorations
         .into_iter()
@@ -900,6 +1069,29 @@ impl InputBaseState<EditorMode> {
             .create(normalize(&self.text, decorations));
         cx.notify();
         RangeDecorationCollection {
+            state: cx.entity().downgrade(),
+            id,
+        }
+    }
+
+    /// Create an independently owned collection of [`Inlay`] values.
+    ///
+    /// Inlays follow edits: one moves after text typed at its offset, and one
+    /// inside replaced text moves to the end of the replacement. They are not undo
+    /// history. Inlays on the same offset draw in collection, then item, order.
+    /// Soft wrapping does not yet make room for them, and they are not drawn
+    /// while inline tokens are shown.
+    pub fn create_inlay_collection(
+        &mut self,
+        inlays: Vec<Inlay>,
+        cx: &mut Context<Self>,
+    ) -> InlayCollection {
+        let id = self
+            .extras
+            .inlays
+            .create(normalize_inlays(&self.text, inlays));
+        cx.notify();
+        InlayCollection {
             state: cx.entity().downgrade(),
             id,
         }
@@ -1079,6 +1271,44 @@ mod tests {
         // A replacement covering a boundary moves it to the replacement's start.
         collections.adjust_for_edit(&(2..6), 1);
         assert_eq!(ranges(&collections), vec![2..2, 7..7, 7..7]);
+    }
+
+    #[test]
+    fn inlays_move_after_text_typed_at_their_offset() {
+        let text = Rope::from("let x = 1;\nlet y = 2;");
+        let mut collections = DecorationCollections::<Inlay>::default();
+        let id = collections.create(normalize_inlays(
+            &text,
+            vec![
+                Inlay::new(5, ": i32"),
+                Inlay::new(16, ": i32"),
+                Inlay::new(3, ""),
+                Inlay::new(3, "a\nb"),
+                Inlay::new(100, "past the end"),
+            ],
+        ));
+        let offsets = |collections: &DecorationCollections<Inlay>| {
+            collections
+                .get(id)
+                .unwrap()
+                .iter()
+                .map(Inlay::offset)
+                .collect::<Vec<_>>()
+        };
+        // Empty text, line breaks and offsets past the end are dropped.
+        assert_eq!(offsets(&collections), vec![5, 16]);
+        // Typing at an inlay's offset puts the text before it.
+        collections.adjust_for_edit(&(5..5), 2);
+        assert_eq!(offsets(&collections), vec![7, 18]);
+        // Deleting the character before it moves it back.
+        collections.adjust_for_edit(&(6..7), 0);
+        assert_eq!(offsets(&collections), vec![6, 17]);
+        // A replacement covering it moves it to the replacement's end.
+        collections.adjust_for_edit(&(14..18), 3);
+        assert_eq!(offsets(&collections), vec![6, 17]);
+        // Text typed before every inlay moves them all.
+        collections.adjust_for_edit(&(0..0), 1);
+        assert_eq!(offsets(&collections), vec![7, 18]);
     }
 
     #[test]

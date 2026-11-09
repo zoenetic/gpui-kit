@@ -3,10 +3,14 @@ use gpui::{App, Pixels, Point, ShapedLine, SharedString, TextAlign, Window, poin
 use std::ops::Range;
 
 pub(crate) struct InlineFragment {
+    /// Source bytes; empty for an inlay, which is drawn but not in the source.
     pub(crate) range: Range<usize>,
     pub(crate) x: Pixels,
     pub(crate) width: Pixels,
     pub(crate) text: Option<ShapedLine>,
+    /// Display-only text: the caret at its offset sits before it, and a click
+    /// on it lands at its offset.
+    pub(crate) inlay: bool,
 }
 
 pub(crate) struct InputLine {
@@ -47,6 +51,12 @@ impl InputLine {
             Content::Text(line) => line.x_for_index(ix),
             Content::Inline(fragments) => {
                 for f in fragments {
+                    if f.inlay {
+                        if ix <= f.range.start {
+                            return f.x;
+                        }
+                        continue;
+                    }
                     if ix < f.range.end {
                         return f.x
                             + f.text.as_ref().map_or(
@@ -65,6 +75,9 @@ impl InputLine {
             Content::Inline(fragments) => {
                 for f in fragments {
                     if x <= f.x + f.width {
+                        if f.inlay {
+                            return f.range.start;
+                        }
                         return f.text.as_ref().map_or(
                             if x - f.x < f.width / 2. {
                                 f.range.start

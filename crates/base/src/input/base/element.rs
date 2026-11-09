@@ -19,7 +19,11 @@ use std::{collections::BTreeSet, ops::Range, rc::Rc};
 
 use crate::{
     Scrollbar,
-    input::{RopeExt as _, blink_cursor::CURSOR_WIDTH, display_map::LineLayout},
+    input::{
+        Inlay, RopeExt as _,
+        blink_cursor::CURSOR_WIDTH,
+        display_map::{InlineFragment, InputLine, LineLayout},
+    },
 };
 
 use super::{
@@ -2422,6 +2426,7 @@ impl<M: InputModeKind> TextElement<M> {
                                 x,
                                 width,
                                 text: Some(shaped),
+                                inlay: false,
                             });
                             x += width;
                         }
@@ -2431,6 +2436,7 @@ impl<M: InputModeKind> TextElement<M> {
                             x,
                             width,
                             text: None,
+                            inlay: false,
                         });
                         x += width;
                         offset = local.end;
@@ -2449,6 +2455,7 @@ impl<M: InputModeKind> TextElement<M> {
                             x,
                             width,
                             text: Some(shaped),
+                            inlay: false,
                         });
                     }
                     lines.push(InputLine::inline(text[range].to_owned().into(), fragments));
@@ -2686,11 +2693,17 @@ impl<M: InputModeKind> TextElement<M> {
 
             debug_assert_eq!(line_item.len(), line_text.len());
 
-            let mut wrapped_lines: SmallVec<[ShapedLine; 1]> = SmallVec::with_capacity(1);
+            let mut wrapped_lines: SmallVec<[InputLine; 1]> = SmallVec::with_capacity(1);
             let mut line_has_background = false;
 
-            for range in &line_item.wrapped_lines {
-                let range = drawn_part(&line_text, range.clone());
+            let line_start = state.text.line_start_offset(buffer_line);
+            let mut line_inlays = state
+                .extras
+                .inlays(&[line_start..line_start + line_text.len() + 1]);
+            line_inlays.retain(|inlay| inlay.offset() <= line_start + line_text.len());
+            line_inlays.sort_by_key(|inlay| inlay.offset());
+
+            let shape = |range: Range<usize>, line_has_background: &mut bool| {
                 let line_runs = runs_for_range(runs, run_offset, &range);
                 let line_runs = if bg_segments.is_empty() {
                     line_runs
@@ -2702,7 +2715,7 @@ impl<M: InputModeKind> TextElement<M> {
                     )
                 };
 
-                let sub_line: SharedString = line_text[range.clone()].to_string().into();
+                let sub_line: SharedString = line_text[range].to_string().into();
                 let line_runs =
                     align_runs_to_char_boundaries(&sub_line, &line_runs).unwrap_or(line_runs);
                 let mut shaped_line = window
@@ -2710,8 +2723,88 @@ impl<M: InputModeKind> TextElement<M> {
                     .shape_line(sub_line, font_size, &line_runs, None);
                 expand_tabs(&mut shaped_line, tab_stop);
 
-                line_has_background |= has_background(&line_runs);
-                wrapped_lines.push(shaped_line);
+                *line_has_background |= has_background(&line_runs);
+                shaped_line
+            };
+
+            let wrapped_count = line_item.wrapped_lines.len();
+            for (wi, range) in line_item.wrapped_lines.iter().enumerate() {
+                let range = drawn_part(&line_text, range.clone());
+                // An inlay at a soft wrap boundary belongs to the row after it,
+                // and one at the line's end to its last row.
+                let last = wi + 1 == wrapped_count;
+                let row_inlays: SmallVec<[&Inlay; 2]> = line_inlays
+                    .iter()
+                    .copied()
+                    .filter(|inlay| {
+                        let offset = inlay.offset() - line_start;
+                        offset >= range.start
+                            && (offset < range.end || (last && offset == range.end))
+                    })
+                    .collect();
+                if row_inlays.is_empty() {
+                    wrapped_lines.push(shape(range, &mut line_has_background).into());
+                    continue;
+                }
+
+                let mut fragments = Vec::with_capacity(row_inlays.len() * 2 + 1);
+                let mut x = px(0.);
+                let mut at = range.start;
+                for inlay in row_inlays {
+                    let offset = inlay.offset() - line_start;
+                    if at < offset {
+                        let shaped = shape(at..offset, &mut line_has_background);
+                        let width = shaped.width;
+                        fragments.push(InlineFragment {
+                            range: at - range.start..offset - range.start,
+                            x,
+                            width,
+                            text: Some(shaped),
+                            inlay: false,
+                        });
+                        x += width;
+                        at = offset;
+                    }
+                    let text = inlay.text().clone();
+                    let shaped = window.text_system().shape_line(
+                        text.clone(),
+                        font_size,
+                        &[TextRun {
+                            len: text.len(),
+                            font: window.text_style().font(),
+                            color: inlay.color().unwrap_or(state.editor_style.muted_foreground),
+                            background_color: inlay.background(),
+                            underline: None,
+                            strikethrough: None,
+                        }],
+                        None,
+                    );
+                    line_has_background |= inlay.background().is_some();
+                    let width = shaped.width;
+                    fragments.push(InlineFragment {
+                        range: offset - range.start..offset - range.start,
+                        x,
+                        width,
+                        text: Some(shaped),
+                        inlay: true,
+                    });
+                    x += width;
+                }
+                if at < range.end {
+                    let shaped = shape(at..range.end, &mut line_has_background);
+                    let width = shaped.width;
+                    fragments.push(InlineFragment {
+                        range: at - range.start..range.end - range.start,
+                        x,
+                        width,
+                        text: Some(shaped),
+                        inlay: false,
+                    });
+                }
+                wrapped_lines.push(InputLine::inline(
+                    line_text[range].to_string().into(),
+                    fragments,
+                ));
             }
 
             // Use the first visual line's indentation width for continuation lines.
@@ -2727,7 +2820,7 @@ impl<M: InputModeKind> TextElement<M> {
             };
 
             let line_layout = LineLayout::new()
-                .lines(wrapped_lines)
+                .inline_lines(wrapped_lines)
                 .wrap_indent(wrap_indent)
                 .with_background(line_has_background)
                 .with_whitespaces(whitespace_indicators.clone());
@@ -4423,8 +4516,8 @@ mod tests {
     use super::*;
     use crate::input::{
         EditorMode, EditorState, FoldPlaceholderRenderer, FoldRange, GutterDecoration,
-        GutterDecorationCollection, OverviewRulerDecoration, OverviewRulerDecorationCollection,
-        RangeDecoration, Redo, Undo,
+        GutterDecorationCollection, Inlay, OverviewRulerDecoration,
+        OverviewRulerDecorationCollection, RangeDecoration, Redo, Undo,
     };
     use gpui::{
         AppContext as _, Context, EntityInputHandler as _, ListAlignment, ListOffset, ListState,
@@ -5867,6 +5960,67 @@ mod tests {
             let wide = layout_overview_ruler(state, &snapshot, px(21.));
             assert_eq!(wide[0].bounds.left(), layout.bounds.right() - px(21.));
             assert_eq!(wide[0].bounds.size.width, px(7.));
+        });
+    }
+
+    #[gpui::test]
+    fn inlays_push_the_rest_of_their_line_right(cx: &mut TestAppContext) {
+        let (editor, window) = decoration_editor(cx, "let x = 1;\nlet y = 2;", false);
+        let mut cx = VisualTestContext::from_window(window.into(), cx);
+        cx.update(|window, cx| {
+            let x_of = |offset: usize, window: &mut Window, cx: &mut App| {
+                window.draw(cx).clear(cx);
+                let state = editor.read(cx);
+                let layout = state.last_layout.clone().unwrap();
+                let row = state.text.offset_to_point(offset).row;
+                let local = offset - state.text.line_start_offset(row);
+                layout.lines[row]
+                    .position_for_index(local, &layout, false)
+                    .unwrap()
+                    .x
+            };
+            let before: Vec<_> = (0..=21).map(|o| x_of(o, window, cx)).collect();
+            let hints = editor.update(cx, |state, cx| {
+                state.create_inlay_collection(vec![Inlay::new(5, ": i32")], cx)
+            });
+            let after: Vec<_> = (0..=21).map(|o| x_of(o, window, cx)).collect();
+
+            // Up to and including the inlay's offset, nothing moves: the caret
+            // there sits before the inlay.
+            assert_eq!(after[..=5], before[..=5]);
+            // After it, the line moves right by the inlay's width.
+            let shift = after[6] - before[6];
+            assert!(shift > px(0.));
+            for offset in 6..=10 {
+                // Shaped separately, the text after the inlay may differ by float noise.
+                assert!((after[offset] - before[offset] - shift).abs() < px(0.01));
+            }
+            // The next line is untouched.
+            assert_eq!(after[11..], before[11..]);
+
+            // A click on the inlay lands at its offset.
+            let state = editor.read(cx);
+            let layout = state.last_layout.clone().unwrap();
+            let line = &layout.lines[0];
+            let inside = before[5] + shift / 2.;
+            assert_eq!(line.closest_index_for_x(inside, &layout), 5);
+
+            // An inlay at the line's end, as a suggestion at the cursor.
+            hints.set(vec![Inlay::new(21, " // done")], cx);
+            let end = x_of(21, window, cx);
+            assert_eq!(end, before[21], "the caret stays before the suggestion");
+            let state = editor.read(cx);
+            let layout = state.last_layout.clone().unwrap();
+            assert!(layout.lines[1].size(layout.line_height).width > before[21]);
+
+            // Typing at the inlay's offset keeps it after the typed text.
+            editor.update(cx, |state, cx| {
+                state.replace_text_in_range(Some(21..21), "!", window, cx)
+            });
+            assert_eq!(hints.inlays(cx)[0].offset(), 22);
+
+            hints.dispose(cx);
+            assert_eq!(x_of(6, window, cx), before[6]);
         });
     }
 
