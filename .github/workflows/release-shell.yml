@@ -34,7 +34,7 @@ concurrency:
 jobs:
   build:
     name: gpui-shell (${{ matrix.target }})
-    if: ${{ github.event_name != 'pull_request' || github.event.label.name == 'release-shell' }}
+    if: ${{ github.repository == 'longbridge/gpui-kit' && (github.event_name != 'pull_request' || github.event.label.name == 'release-shell') }}
     permissions:
       contents: write
     strategy:
@@ -130,7 +130,7 @@ jobs:
   record:
     name: Record the commit the binaries were built from
     needs: build
-    if: ${{ github.event_name != 'push' && (github.event_name != 'pull_request' || github.event.label.name == 'release-shell') }}
+    if: ${{ github.repository == 'longbridge/gpui-kit' && (github.event_name != 'push' && (github.event_name != 'pull_request' || github.event.label.name == 'release-shell')) }}
     runs-on: ubuntu-latest
     permissions:
       contents: write

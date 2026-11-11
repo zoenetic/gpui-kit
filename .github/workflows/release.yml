@@ -5,6 +5,7 @@ on:
       - "v*"
 jobs:
   publish_crate:
+    if: github.repository == 'longbridge/gpui-kit'
     name: Publish Crate
     runs-on: ubuntu-latest
     steps:

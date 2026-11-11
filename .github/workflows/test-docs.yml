@@ -14,6 +14,7 @@ on:
 
 jobs:
   build:
+    if: github.repository == 'longbridge/gpui-kit'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
