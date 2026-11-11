@@ -144,6 +144,8 @@ pub use ::gpui_platform as platform;
 pub use ::gpui_web as web;
 pub use gpui_base::is_mobile;
 
+pub mod scale;
+
 /// The styled component library.
 ///
 /// ```no_run
