@@ -4346,7 +4346,10 @@ dependencies = [
 name = "gpui-kit"
 version = "0.9.1"
 dependencies = [
+ "accesskit",
+ "anyhow",
  "chrono",
+ "futures",
  "gpui-base",
  "gpui-component",
  "gpui-fast",
@@ -4358,6 +4361,9 @@ dependencies = [
  "gpui-pre-platform",
  "gpui-pre-web",
  "lsp-types 0.97.0",
+ "raw-window-handle",
+ "smallvec",
+ "windows 0.62.2",
 ]
 
 [[package]]
