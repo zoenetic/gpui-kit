@@ -33,10 +33,15 @@
 //! dropped files) are divided by the scale on their way in, and positions the
 //! application gives the platform inside a window (the window menu, the input
 //! method's caret, input regions, client-side decoration insets) are
-//! multiplied on their way out. Screen geometry is not scaled: a window's
-//! bounds, its display's bounds and [`Window::resize`] stay in the operating
-//! system's logical pixels, so saved window sizes keep their meaning when the
-//! scale changes.
+//! multiplied on their way out. [`Window::resize`] takes a content size in
+//! the same scaled pixels as [`Window::viewport_size`], so the two pair up.
+//! Screen geometry is not scaled: [`Window::bounds`], [`Window::window_bounds`]
+//! and a display's bounds stay in the operating system's logical pixels, so
+//! saved window positions and sizes keep their meaning when the scale
+//! changes. Don't pass `bounds().size` to `resize`.
+//!
+//! The scale is one per thread, as GPUI's platform and windows all live on
+//! the main thread: read from another thread, [`scale()`] is 1.
 //!
 //! Two things are not scaled yet, because GPUI gives no hook for them: the
 //! rectangles an input method asks the input handler for (macOS and Windows
@@ -77,11 +82,7 @@ pub fn scale() -> f32 {
 /// through a platform that [`application`] or [`scaled`] did not wrap keep
 /// the display's scale.
 pub fn set_scale(scale: f32, cx: &mut App) {
-    let scale = if scale.is_finite() {
-        scale.clamp(MIN_SCALE, MAX_SCALE)
-    } else {
-        1.0
-    };
+    let scale = clamped(scale);
     if SCALE.with(|cell| cell.replace(scale)) == scale {
         return;
     }
@@ -94,6 +95,15 @@ pub fn set_scale(scale: f32, cx: &mut App) {
                 .ok();
         }
     });
+}
+
+/// `scale` within [`MIN_SCALE`] and [`MAX_SCALE`], or 1 if it isn't a number.
+fn clamped(scale: f32) -> f32 {
+    if scale.is_finite() {
+        scale.clamp(MIN_SCALE, MAX_SCALE)
+    } else {
+        1.0
+    }
 }
 
 /// The platform's application, with windows drawn at the interface scale.
@@ -863,6 +873,15 @@ mod tests {
             panic!("a scroll stays one");
         };
         assert!(matches!(event.delta, ScrollDelta::Lines(lines) if lines == point(0., 3.)));
+    }
+
+    #[test]
+    fn test_scales_are_kept_within_the_limits() {
+        assert_eq!(clamped(1.25), 1.25);
+        assert_eq!(clamped(0.1), MIN_SCALE);
+        assert_eq!(clamped(9.), MAX_SCALE);
+        assert_eq!(clamped(f32::NAN), 1.);
+        assert_eq!(clamped(f32::INFINITY), 1.);
     }
 
     #[test]
