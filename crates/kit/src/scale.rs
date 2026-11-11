@@ -85,11 +85,15 @@ pub fn set_scale(scale: f32, cx: &mut App) {
     if SCALE.with(|cell| cell.replace(scale)) == scale {
         return;
     }
-    for window in cx.windows() {
-        window
-            .update(cx, |_, window, cx| window.bounds_changed(cx))
-            .ok();
-    }
+    // Deferred, as a window being updated now can't be laid out again
+    // inside its own update.
+    cx.defer(|cx| {
+        for window in cx.windows() {
+            window
+                .update(cx, |_, window, cx| window.bounds_changed(cx))
+                .ok();
+        }
+    });
 }
 
 /// The platform's application, with windows drawn at the interface scale.
