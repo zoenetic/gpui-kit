@@ -30,6 +30,7 @@ env:
 # which is what made the old single macOS job take half an hour.
 jobs:
   checks:
+    if: github.repository == 'longbridge/gpui-kit'
     name: Checks
     runs-on: ubuntu-latest
     steps:
@@ -48,6 +49,7 @@ jobs:
         run: cargo machete
 
   lint:
+    if: github.repository == 'longbridge/gpui-kit'
     name: Lint
     runs-on: macos-latest
     steps:
@@ -66,6 +68,7 @@ jobs:
         run: cargo clippy -p gpui-webview -p webview --features gpui-kit/gpui-fast,gpui-webview/gpui-fast --locked -- --deny warnings
 
   no-default-features:
+    if: github.repository == 'longbridge/gpui-kit'
     name: No default features
     runs-on: ubuntu-latest
     steps:
@@ -85,6 +88,7 @@ jobs:
         run: python3 script/check-ai rust
 
   test:
+    if: github.repository == 'longbridge/gpui-kit'
     name: Test
     strategy:
       fail-fast: false
@@ -156,6 +160,7 @@ jobs:
           $TEST_EXCLUDES --test rendering
 
   gpui-fast:
+    if: github.repository == 'longbridge/gpui-kit'
     name: GPUI Fast (${{ matrix.run_on }})
     strategy:
       fail-fast: false
@@ -185,6 +190,7 @@ jobs:
   # `gpui-webview` defaults to gpui-pre, where the native view is attached to
   # the window directly; this keeps that build compiling on every platform.
   webview-gpui-pre:
+    if: github.repository == 'longbridge/gpui-kit'
     name: WebView on gpui-pre (${{ matrix.run_on }})
     strategy:
       fail-fast: false
@@ -206,6 +212,7 @@ jobs:
         run: cargo clippy -p gpui-webview --all-targets --locked -- --deny warnings
 
   gpui-fast-web:
+    if: github.repository == 'longbridge/gpui-kit'
     name: GPUI Fast (WebAssembly)
     runs-on: ubuntu-latest
     steps:
@@ -224,6 +231,7 @@ jobs:
         run: cargo check -p gpui-kit --features gpui-fast --target wasm32-unknown-unknown --locked
 
   gpui-shell-core:
+    if: github.repository == 'longbridge/gpui-kit'
     name: GPUI Shell Core
     runs-on: ubuntu-latest
     steps:
@@ -255,6 +263,7 @@ jobs:
         run: cargo check -p gpui-shell --no-default-features --features quickjs
 
   gpui-shell-components:
+    if: github.repository == 'longbridge/gpui-kit'
     name: GPUI Shell Components
     runs-on: ubuntu-latest
     steps:
@@ -285,6 +294,7 @@ jobs:
         run: node examples/js_story/fixtures/verify-coverage.mjs
 
   gpui-shell-standard-runtime:
+    if: github.repository == 'longbridge/gpui-kit'
     name: GPUI Shell Standard Runtime (${{ matrix.target }})
     strategy:
       fail-fast: false

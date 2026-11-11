@@ -26,6 +26,7 @@ concurrency:
 
 jobs:
   publish:
+    if: github.repository == 'longbridge/gpui-kit'
     name: Publish gpui-pre
     # macOS verifies the Metal shader build script of gpui_apple, the one
     # part of the pipeline that only compiles on Apple platforms.

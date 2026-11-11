@@ -4,6 +4,9 @@
 # posts comments and never approves, blocks or pushes. Running it by hand
 # from the Actions tab ignores the cap.
 #
+# It is the only workflow that runs on this fork: every job in the others
+# checks `github.repository == 'longbridge/gpui-kit'`, so they skip here.
+#
 # Needs the CLAUDE_CODE_OAUTH_TOKEN repository secret (`claude setup-token`).
 name: Review
 
