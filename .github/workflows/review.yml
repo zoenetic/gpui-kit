@@ -8,6 +8,7 @@
 # checks `github.repository == 'longbridge/gpui-kit'`, so they skip here.
 #
 # Needs the CLAUDE_CODE_OAUTH_TOKEN repository secret (`claude setup-token`).
+# Runs on the self-hosted runner "zocloud", which needs the `gh` CLI.
 name: Review
 
 on:
@@ -38,7 +39,7 @@ jobs:
   review:
     name: Review
     if: github.event_name == 'workflow_dispatch' || !github.event.pull_request.draft
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, linux, x64]
     timeout-minutes: 30
     env:
       PR: ${{ github.event.pull_request.number || inputs.pr }}
