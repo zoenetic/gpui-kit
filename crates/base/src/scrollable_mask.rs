@@ -169,6 +169,7 @@ impl RoundedFrameCover {
     }
 }
 
+#[cfg(not(feature = "gpui-fast"))]
 impl IntoElement for RoundedFrameCover {
     type Element = Self;
 
@@ -404,6 +405,7 @@ impl<H: ScrollbarHandle + Clone> ScrollableMask<H> {
     }
 }
 
+#[cfg(not(feature = "gpui-fast"))]
 impl<H: ScrollbarHandle + Clone> IntoElement for ScrollableMask<H> {
     type Element = Self;
 
@@ -713,9 +715,7 @@ mod tests {
         let scroll_handle = ScrollHandle::new();
         let (_, cx) = cx.add_window_view({
             let scroll_handle = scroll_handle.clone();
-            move |_, _| HorizontalScrollAreaTest {
-                scroll_handle: scroll_handle.clone(),
-            }
+            move |_, _| HorizontalScrollAreaTest { scroll_handle }
         });
         let cx: &mut VisualTestContext = cx;
         cx.run_until_parked();
@@ -862,7 +862,7 @@ mod tests {
         let list_state = ListState::new(10, ListAlignment::Top, px(0.));
         let (_, cx) = cx.add_window_view({
             let list_state = list_state.clone();
-            move |_, _| ListWithFittingAreaTest(list_state.clone())
+            move |_, _| ListWithFittingAreaTest(list_state)
         });
         cx.update(|window, cx| {
             _ = window.draw(cx);
@@ -923,7 +923,7 @@ mod tests {
             let list_state = list_state.clone();
             move |_, _| ListWithVerticalMaskTest {
                 outer_handle: outer_handle.clone(),
-                list_state: list_state.clone(),
+                list_state,
             }
         });
         cx.run_until_parked();
@@ -1045,9 +1045,7 @@ mod tests {
         let scroll_handle = ScrollHandle::new();
         let (_, cx) = cx.add_window_view({
             let scroll_handle = scroll_handle.clone();
-            move |_, _| HorizontalScrollAreaTest {
-                scroll_handle: scroll_handle.clone(),
-            }
+            move |_, _| HorizontalScrollAreaTest { scroll_handle }
         });
         let cx: &mut VisualTestContext = cx;
         cx.run_until_parked();
@@ -1069,9 +1067,7 @@ mod tests {
         let scroll_handle = ScrollHandle::new();
         let (_, cx) = cx.add_window_view({
             let scroll_handle = scroll_handle.clone();
-            move |_, _| HorizontalScrollAreaTest {
-                scroll_handle: scroll_handle.clone(),
-            }
+            move |_, _| HorizontalScrollAreaTest { scroll_handle }
         });
         let cx: &mut VisualTestContext = cx;
         cx.run_until_parked();
@@ -1134,9 +1130,7 @@ mod tests {
     ) -> &'a mut VisualTestContext {
         let (_, cx) = cx.add_window_view({
             let scroll_handle = scroll_handle.clone();
-            move |_, _| HorizontalScrollAreaTest {
-                scroll_handle: scroll_handle.clone(),
-            }
+            move |_, _| HorizontalScrollAreaTest { scroll_handle }
         });
         let cx: &mut VisualTestContext = cx;
         cx.run_until_parked();
@@ -1388,7 +1382,7 @@ mod tests {
             let list_state = list_state.clone();
             move |_, _| ListWithVerticalAreaTest {
                 scroll_handle: scroll_handle.clone(),
-                list_state: list_state.clone(),
+                list_state,
             }
         });
         cx.run_until_parked();
