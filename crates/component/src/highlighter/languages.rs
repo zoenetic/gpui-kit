@@ -323,6 +323,27 @@ impl Language {
                 #[cfg(feature = "tree-sitter-graphql")]
                 languages.push("graphql");
             }
+            #[cfg(feature = "tree-sitter-tsx")]
+            Self::Tsx => {
+                #[cfg(feature = "tree-sitter-jsdoc")]
+                languages.push("jsdoc");
+                languages.push("json");
+                #[cfg(feature = "tree-sitter-css")]
+                languages.push("css");
+                #[cfg(feature = "tree-sitter-html")]
+                languages.push("html");
+                #[cfg(feature = "tree-sitter-sql")]
+                languages.push("sql");
+                #[cfg(feature = "tree-sitter-typescript")]
+                languages.push("typescript");
+                #[cfg(feature = "tree-sitter-javascript")]
+                languages.push("javascript");
+                languages.push("tsx");
+                #[cfg(feature = "tree-sitter-yaml")]
+                languages.push("yaml");
+                #[cfg(feature = "tree-sitter-graphql")]
+                languages.push("graphql");
+            }
             #[cfg(feature = "tree-sitter-astro")]
             Self::Astro => {
                 #[cfg(feature = "tree-sitter-html")]
