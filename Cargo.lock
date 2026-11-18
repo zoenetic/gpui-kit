@@ -4362,6 +4362,7 @@ dependencies = [
  "gpui-pre-macros",
  "gpui-pre-platform",
  "gpui-pre-web",
+ "image",
  "lsp-types 0.97.0",
  "raw-window-handle",
  "smallvec",
