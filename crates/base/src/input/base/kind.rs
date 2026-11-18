@@ -110,6 +110,12 @@ pub trait InputExtras: Default + 'static {
         Vec::new()
     }
 
+    /// The number shown in the gutter for a buffer line, counted from 0,
+    /// or `None` for a line drawn without one.
+    fn line_number_of(&self, buffer_line: usize) -> Option<usize> {
+        Some(buffer_line + 1)
+    }
+
     /// Return all overview ruler decorations in paint order.
     fn overview_ruler_decorations(&self) -> Vec<&OverviewRulerDecoration> {
         Vec::new()
@@ -419,6 +425,9 @@ pub struct EditorExtras {
     pub(crate) gutter_decorations: DecorationCollections<GutterDecoration>,
     pub(crate) gutter_decorations_width: gpui::Pixels,
     pub(crate) gutter_margin: gpui::Pixels,
+    /// Buffer lines drawn without a line number, in order; the lines after
+    /// them are numbered without them.
+    pub(crate) unnumbered_lines: Vec<usize>,
     pub(crate) overview_ruler_decorations: DecorationCollections<OverviewRulerDecoration>,
     pub(crate) inlays: DecorationCollections<Inlay>,
     pub(crate) inline_completion: InlineCompletion,
@@ -437,6 +446,7 @@ impl Default for EditorExtras {
             gutter_decorations: DecorationCollections::default(),
             gutter_decorations_width: gpui::px(3.),
             gutter_margin: super::element::DEFAULT_GUTTER_MARGIN,
+            unnumbered_lines: Vec::new(),
             overview_ruler_decorations: DecorationCollections::default(),
             inlays: DecorationCollections::default(),
             inline_completion: InlineCompletion::default(),

@@ -3744,11 +3744,14 @@ impl<M: InputModeKind> Element for TextElement<M> {
                 .iter()
                 .zip(last_layout.visible_buffer_lines.iter())
             {
-                let line_no: SharedString = format!(
-                    "{:>width$}",
-                    displayed_line_number(buffer_line + 1),
-                    width = line_number_len
-                )
+                let line_no: SharedString = match state.extras.line_number_of(buffer_line) {
+                    Some(number) => format!(
+                        "{:>width$}",
+                        displayed_line_number(number),
+                        width = line_number_len
+                    ),
+                    None => " ".repeat(line_number_len),
+                }
                 .into();
 
                 let runs = if current_row == Some(buffer_line) {

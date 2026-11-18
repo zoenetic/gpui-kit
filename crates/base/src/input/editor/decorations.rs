@@ -1218,6 +1218,19 @@ impl InputBaseState<EditorMode> {
         self
     }
 
+    /// Draw `lines`, buffer lines counted from 0, without a line number,
+    /// and number the others as if they weren't there: text shown in the
+    /// editor that isn't part of the document it edits. Lines don't track
+    /// edits; set them again after each change.
+    pub fn set_unnumbered_lines(&mut self, mut lines: Vec<usize>, cx: &mut Context<Self>) {
+        lines.sort_unstable();
+        lines.dedup();
+        if self.extras.unnumbered_lines != lines {
+            self.extras.unnumbered_lines = lines;
+            cx.notify();
+        }
+    }
+
     /// Set the width of the strip that gutter decorations draw in.
     pub fn set_gutter_decorations_width(&mut self, width: Pixels, cx: &mut Context<Self>) {
         if self.extras.gutter_decorations_width != width {
