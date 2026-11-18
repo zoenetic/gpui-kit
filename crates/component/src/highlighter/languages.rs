@@ -323,6 +323,27 @@ impl Language {
                 #[cfg(feature = "tree-sitter-graphql")]
                 languages.push("graphql");
             }
+            #[cfg(feature = "tree-sitter-tsx")]
+            Self::Tsx => {
+                #[cfg(feature = "tree-sitter-jsdoc")]
+                languages.push("jsdoc");
+                languages.push("json");
+                #[cfg(feature = "tree-sitter-css")]
+                languages.push("css");
+                #[cfg(feature = "tree-sitter-html")]
+                languages.push("html");
+                #[cfg(feature = "tree-sitter-sql")]
+                languages.push("sql");
+                #[cfg(feature = "tree-sitter-typescript")]
+                languages.push("typescript");
+                #[cfg(feature = "tree-sitter-javascript")]
+                languages.push("javascript");
+                languages.push("tsx");
+                #[cfg(feature = "tree-sitter-yaml")]
+                languages.push("yaml");
+                #[cfg(feature = "tree-sitter-graphql")]
+                languages.push("graphql");
+            }
             #[cfg(feature = "tree-sitter-astro")]
             Self::Astro => {
                 #[cfg(feature = "tree-sitter-html")]
@@ -436,7 +457,10 @@ impl Language {
             #[cfg(feature = "tree-sitter-javascript")]
             Self::JavaScript => (
                 tree_sitter_javascript::LANGUAGE,
-                include_str!("languages/javascript/highlights.scm"),
+                concat!(
+                    include_str!("languages/javascript/highlights.scm"),
+                    include_str!("languages/jsx/highlights.scm")
+                ),
                 include_str!("languages/javascript/injections.scm"),
                 tree_sitter_javascript::LOCALS_QUERY,
             ),
@@ -535,10 +559,15 @@ impl Language {
                 tree_sitter_typescript::LOCALS_QUERY,
             ),
             #[cfg(feature = "tree-sitter-tsx")]
+            // The grammar's own query only adds TypeScript's to
+            // JavaScript's: TypeScript's whole query, then JSX's.
             Self::Tsx => (
                 tree_sitter_typescript::LANGUAGE_TSX,
-                tree_sitter_typescript::HIGHLIGHTS_QUERY,
-                "",
+                concat!(
+                    include_str!("languages/typescript/highlights.scm"),
+                    include_str!("languages/jsx/highlights.scm")
+                ),
+                include_str!("languages/javascript/injections.scm"),
                 tree_sitter_typescript::LOCALS_QUERY,
             ),
             #[cfg(feature = "tree-sitter-diff")]
