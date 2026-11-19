@@ -43,11 +43,13 @@ fn diagnostic_highlight_style(
         crate::input::DiagnosticSeverity::Info => colors.info,
         crate::input::DiagnosticSeverity::Hint => colors.hint,
     };
+    // Errors get a straight line and the rest a wavy one, so the severity
+    // shows by shape as well as colour.
     HighlightStyle {
         underline: Some(UnderlineStyle {
             color: Some(color),
             thickness: px(1.),
-            wavy: true,
+            wavy: severity != crate::input::DiagnosticSeverity::Error,
         }),
         ..Default::default()
     }
