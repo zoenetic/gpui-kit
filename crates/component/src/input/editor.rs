@@ -28,6 +28,7 @@ pub struct Editor {
     role: RoleOverride,
     aria_label: Option<SharedString>,
     gutter_padding: Option<Pixels>,
+    right_padding: Option<Pixels>,
 
     /// An optional context menu builder to allow a custom context menu.
     ///
@@ -52,6 +53,7 @@ impl Editor {
             role: RoleOverride::default(),
             aria_label: None,
             gutter_padding: None,
+            right_padding: None,
             context_menu_builder: None,
             paste_handler: None,
         }
@@ -62,6 +64,14 @@ impl Editor {
     /// most 6 px.
     pub fn gutter_padding(mut self, padding: impl Into<Pixels>) -> Self {
         self.gutter_padding = Some(padding.into());
+        self
+    }
+
+    /// Set the space between the text and the editor's right edge, where its
+    /// scrollbar, or the element that replaces it, draws. The default is the
+    /// size's horizontal padding.
+    pub fn right_padding(mut self, padding: impl Into<Pixels>) -> Self {
+        self.right_padding = Some(padding.into());
         self
     }
 
@@ -174,6 +184,7 @@ impl RenderOnce for Editor {
             .tab_index(self.tab_index)
             .role(self.role)
             .gutter_padding(self.gutter_padding)
+            .right_padding(self.right_padding)
             .when_some(self.height, |this, height| this.h(height))
             .when_some(self.aria_label, |this, label| this.aria_label(label))
             .when_some(self.context_menu_builder, |this, build| {

@@ -157,6 +157,8 @@ pub struct Input {
     aria_label: Option<SharedString>,
     /// The code editor's left padding, set by [`super::Editor::gutter_padding`].
     gutter_padding: Option<Pixels>,
+    /// The code editor's right padding, set by [`super::Editor::right_padding`].
+    right_padding: Option<Pixels>,
 
     /// An optional context menu builder to allow a custom context menu on the input.
     ///
@@ -270,6 +272,7 @@ impl Input {
             accessibility_id: None,
             aria_label: None,
             gutter_padding: None,
+            right_padding: None,
             context_menu_builder: None,
             paste_handler: None,
             token_renderer: None,
@@ -291,6 +294,11 @@ impl Input {
 
     pub(crate) fn gutter_padding(mut self, padding: Option<Pixels>) -> Self {
         self.gutter_padding = padding;
+        self
+    }
+
+    pub(crate) fn right_padding(mut self, padding: Option<Pixels>) -> Self {
+        self.right_padding = padding;
         self
     }
 
@@ -621,7 +629,7 @@ impl RenderOnce for Input {
             if state.presentation(cx).is_multi_line() {
                 Edges {
                     top: self.size.input_py(),
-                    right: self.size.input_px(),
+                    right: self.right_padding.unwrap_or(self.size.input_px()),
                     bottom: self.size.input_py(),
                     left: if state.presentation(cx).is_code_editor() {
                         self.gutter_padding
