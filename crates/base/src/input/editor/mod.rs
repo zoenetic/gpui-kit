@@ -67,6 +67,27 @@ impl InputModeKind for EditorMode {
             .overview_ruler_decorations
             .adjust_for_edit(range, new_len);
         state.extras.inlays.adjust_for_edit(range, new_len);
+        if !state.extras.unnumbered_starts.is_empty() {
+            use crate::input::RopeExt as _;
+            let text = &state.text;
+            let extras = &mut state.extras;
+            extras.unnumbered_starts.retain_mut(|start| {
+                // A line whose start, or the line break before it, was
+                // deleted joins the line before it.
+                if *start > range.start && *start <= range.end {
+                    return false;
+                }
+                *start =
+                    super::decorations::adjust_following_point_for_edit(*start, range, new_len);
+                true
+            });
+            extras.unnumbered_lines = extras
+                .unnumbered_starts
+                .iter()
+                .map(|&start| text.offset_to_point(start.min(text.len())).row)
+                .collect();
+            extras.unnumbered_lines.dedup();
+        }
     }
 
     fn refresh_language_features(
@@ -274,6 +295,8 @@ impl crate::input::InputExtras for super::EditorExtras {
     }
 
     fn line_number_of(&self, buffer_line: usize) -> Option<usize> {
+        // `unnumbered_lines` is kept sorted and without repeats, so `before`
+        // counts those before the line, and is at most `buffer_line`.
         match self.unnumbered_lines.binary_search(&buffer_line) {
             Ok(_) => None,
             Err(before) => Some(buffer_line + 1 - before),

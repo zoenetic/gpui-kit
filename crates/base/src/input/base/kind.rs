@@ -425,9 +425,13 @@ pub struct EditorExtras {
     pub(crate) gutter_decorations: DecorationCollections<GutterDecoration>,
     pub(crate) gutter_decorations_width: gpui::Pixels,
     pub(crate) gutter_margin: gpui::Pixels,
-    /// Buffer lines drawn without a line number, in order; the lines after
-    /// them are numbered without them.
+    /// Buffer lines drawn without a line number, sorted and without
+    /// repeats, so `line_number_of` can count the ones before a line; the
+    /// lines after them are numbered without them.
     pub(crate) unnumbered_lines: Vec<usize>,
+    /// Where each of those lines starts, as byte offsets that follow edits,
+    /// so the lines move with the text.
+    pub(crate) unnumbered_starts: Vec<usize>,
     pub(crate) overview_ruler_decorations: DecorationCollections<OverviewRulerDecoration>,
     pub(crate) inlays: DecorationCollections<Inlay>,
     pub(crate) inline_completion: InlineCompletion,
@@ -447,6 +451,7 @@ impl Default for EditorExtras {
             gutter_decorations_width: gpui::px(3.),
             gutter_margin: super::element::DEFAULT_GUTTER_MARGIN,
             unnumbered_lines: Vec::new(),
+            unnumbered_starts: Vec::new(),
             overview_ruler_decorations: DecorationCollections::default(),
             inlays: DecorationCollections::default(),
             inline_completion: InlineCompletion::default(),
