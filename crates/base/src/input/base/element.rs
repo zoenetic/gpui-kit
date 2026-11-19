@@ -2897,15 +2897,46 @@ impl<M: InputModeKind> TextElement<M> {
             }
         };
         let Some(highlighter) = highlighter.as_mut() else {
-            return (!state.masked)
-                .then(|| {
-                    compose_decoration_collections(
-                        Vec::new(),
-                        state.extras.decoration_layers().into_iter(),
-                        visible_byte_range,
+            if state.masked {
+                return None;
+            }
+            // No syntax to highlight, as for plain text: the decorations,
+            // then the diagnostics over them.
+            let styles = compose_decoration_collections(
+                Vec::new(),
+                state.extras.decoration_layers().into_iter(),
+                visible_byte_range.clone(),
+            )
+            .unwrap_or_default();
+            let diagnostic_styles: Vec<_> = diagnostics
+                .range(visible_byte_range.clone())
+                .map(|entry| {
+                    (
+                        entry.range.clone(),
+                        diagnostic_highlight_style(entry.severity, state.editor_style.diagnostics),
                     )
                 })
-                .flatten();
+                .collect();
+            if styles.is_empty() && diagnostic_styles.is_empty() {
+                return None;
+            }
+            // Clipped to the lines shown, as below, so nothing inside a fold
+            // reaches the runs.
+            let mut shown: Vec<Range<usize>> = Vec::new();
+            for &line in visible_buffer_lines {
+                let start = text.line_start_offset(line);
+                let end = if is_multi_line {
+                    text.line_start_offset(line + 1)
+                } else {
+                    text.line_end_offset(line)
+                };
+                match shown.last_mut() {
+                    Some(last) if last.end == start => last.end = end,
+                    _ => shown.push(start..end),
+                }
+            }
+            let styles = combine_highlights(styles, diagnostic_styles);
+            return Some(clip_styles_to_ranges(styles, &shown));
         };
 
         let mut styles = Vec::with_capacity(visible_buffer_lines.len());
