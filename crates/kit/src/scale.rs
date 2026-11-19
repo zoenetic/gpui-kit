@@ -483,6 +483,12 @@ impl HasDisplayHandle for ScaledWindow {
 impl PlatformWindow for ScaledWindow {
     // What the scale changes.
 
+    // Drawn at the window's own scale already, so it passes through.
+    #[cfg(feature = "test-support")]
+    fn render_to_image(&self, scene: &Scene) -> anyhow::Result<image::RgbaImage> {
+        self.0.render_to_image(scene)
+    }
+
     fn scale_factor(&self) -> f32 {
         self.0.scale_factor() * scale()
     }

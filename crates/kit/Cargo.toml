@@ -24,7 +24,7 @@ component = ["dep:gpui-component"]
 # The default icon set for `gpui-component`, `gpui_kit::assets`.
 assets = ["dep:gpui-kit-assets"]
 # GPUI's test harness, native-platform rendering, and Kit UI test helpers.
-test-support = ["gpui/test-support", "gpui_platform/test-support", "gpui-base/test-support", "gpui-component?/test-support", "gpui-fast?/test-support", "gpui-fast-platform?/test-support"]
+test-support = ["gpui/test-support", "gpui_platform/test-support", "gpui-base/test-support", "gpui-component?/test-support", "gpui-fast?/test-support", "gpui-fast-platform?/test-support", "dep:image"]
 # Frame-event instrumentation remains opt-in for performance builds.
 profiler = ["gpui/profiler", "gpui-fast?/profiler"]
 inspector = ["gpui/inspector", "gpui-base/inspector", "gpui-component?/inspector", "gpui-fast?/inspector"]
@@ -79,6 +79,8 @@ tree-sitter-zig = ["component", "gpui-component/tree-sitter-zig"]
 gpui_macros.workspace = true
 gpui.workspace = true
 gpui-fast = { workspace = true, optional = true }
+# Only to name the frame `render_to_image` hands back through a scaled window.
+image = { version = "0.25", default-features = false, optional = true }
 gpui-base.workspace = true
 gpui-component = { workspace = true, optional = true }
 gpui-kit-assets = { workspace = true, optional = true }
