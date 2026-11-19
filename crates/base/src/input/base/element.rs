@@ -2909,7 +2909,7 @@ impl<M: InputModeKind> TextElement<M> {
             )
             .unwrap_or_default();
             let diagnostic_styles: Vec<_> = diagnostics
-                .range(visible_byte_range.clone())
+                .range(visible_byte_range)
                 .map(|entry| {
                     (
                         entry.range.clone(),
