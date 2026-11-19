@@ -68,8 +68,7 @@ impl Editor {
     }
 
     /// Set the space between the text and the editor's right edge, where its
-    /// scrollbar, or the element that replaces it, draws. The default is the
-    /// size's horizontal padding.
+    /// scrollbar draws. The default is the size's horizontal padding.
     pub fn right_padding(mut self, padding: impl Into<Pixels>) -> Self {
         self.right_padding = Some(padding.into());
         self
@@ -550,5 +549,46 @@ mod tests {
         // The default is the medium size's 10 px padding, capped at 6 px.
         assert_eq!(text_left(cx, Some(px(13.))) - default, px(7.));
         assert_eq!(text_left(cx, Some(px(0.))) - default, px(-6.));
+    }
+
+    struct RightPaddedHarness {
+        state: Entity<EditorState>,
+        padding: Pixels,
+    }
+
+    impl Render for RightPaddedHarness {
+        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+            div()
+                .size_full()
+                .child(Editor::new(&self.state).right_padding(self.padding))
+        }
+    }
+
+    /// How many rows a long wrapped line takes.
+    fn wrapped_rows(cx: &mut TestAppContext, padding: Pixels) -> usize {
+        cx.update(crate::init);
+        let mut state = None;
+        let (_, cx) = cx.add_window_view(|window, cx| {
+            let editor = cx.new(|cx| {
+                EditorState::new(window, cx)
+                    .soft_wrap(true)
+                    .default_value("word ".repeat(400))
+            });
+            state = Some(editor.clone());
+            RightPaddedHarness {
+                state: editor,
+                padding,
+            }
+        });
+        let state = state.unwrap();
+        VisualTestContext::update(cx, |window, cx| window.draw(cx).clear(cx));
+        cx.read(|cx| state.read(cx).display_map().display_row_count())
+    }
+
+    #[gpui::test]
+    fn right_padding_narrows_the_text(cx: &mut TestAppContext) {
+        let narrow = wrapped_rows(cx, px(400.));
+        let wide = wrapped_rows(cx, px(0.));
+        assert!(narrow > wide, "{narrow} rows with padding, {wide} without");
     }
 }
