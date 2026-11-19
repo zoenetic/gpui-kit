@@ -1000,7 +1000,7 @@ fn adjust_point_for_edit(offset: usize, edited_range: &Range<usize>, inserted_le
 
 /// A point moves after text inserted at its offset, and a replacement that covers
 /// it moves it to where the replacement ends.
-fn adjust_following_point_for_edit(
+pub(super) fn adjust_following_point_for_edit(
     offset: usize,
     edited_range: &Range<usize>,
     inserted_len: usize,
@@ -1218,6 +1218,24 @@ impl InputBaseState<EditorMode> {
         self
     }
 
+    /// Draw `lines`, buffer lines counted from 0, without a line number,
+    /// and number the others as if they weren't there: text shown in the
+    /// editor that isn't part of the document it edits. The lines move with
+    /// edits before them, and one whose start is deleted goes.
+    pub fn set_unnumbered_lines(&mut self, mut lines: Vec<usize>, cx: &mut Context<Self>) {
+        lines.retain(|&line| line < self.text.lines_len());
+        lines.sort_unstable();
+        lines.dedup();
+        if self.extras.unnumbered_lines != lines {
+            self.extras.unnumbered_starts = lines
+                .iter()
+                .map(|&line| self.text.line_start_offset(line))
+                .collect();
+            self.extras.unnumbered_lines = lines;
+            cx.notify();
+        }
+    }
+
     /// Set the width of the strip that gutter decorations draw in.
     pub fn set_gutter_decorations_width(&mut self, width: Pixels, cx: &mut Context<Self>) {
         if self.extras.gutter_decorations_width != width {
@@ -1230,6 +1248,46 @@ impl InputBaseState<EditorMode> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[gpui::test]
+    fn unnumbered_lines_move_with_edits_before_them(cx: &mut gpui::TestAppContext) {
+        use crate::input::InputExtras as _;
+
+        cx.update(crate::init);
+        let (state, cx) = cx.add_window_view(|window, cx| {
+            crate::input::EditorState::new(window, cx)
+                .line_number(true)
+                .default_value("a\nb\nc\nd")
+        });
+        let numbers = |cx: &mut gpui::VisualTestContext| {
+            state.read_with(cx, |state, _| {
+                (0..state.text.lines_len())
+                    .map(|line| state.extras.line_number_of(line))
+                    .collect::<Vec<_>>()
+            })
+        };
+        state.update(cx, |state, cx| {
+            state.set_unnumbered_lines(vec![2, 1, 9], cx)
+        });
+        assert_eq!(numbers(cx), [Some(1), None, None, Some(2)]);
+        // A line typed above them moves them down.
+        cx.update(|window, cx| {
+            state.update(cx, |state, cx| {
+                state.set_selected_range(0..0, cx);
+                state.insert("x\n", window, cx);
+            })
+        });
+        assert_eq!(numbers(cx), [Some(1), Some(2), None, None, Some(3)]);
+        // One whose start is deleted goes, joining the line before it.
+        cx.update(|window, cx| {
+            state.update(cx, |state, cx| {
+                state.set_selected_range(3..4, cx);
+                state.replace("", window, cx);
+            })
+        });
+        assert_eq!(state.read_with(cx, |state, _| state.value()), "x\nab\nc\nd");
+        assert_eq!(numbers(cx), [Some(1), Some(2), None, Some(3)]);
+    }
 
     #[gpui::test]
     fn textarea_decorations_follow_edits_and_render(cx: &mut gpui::TestAppContext) {

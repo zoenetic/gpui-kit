@@ -67,6 +67,27 @@ impl InputModeKind for EditorMode {
             .overview_ruler_decorations
             .adjust_for_edit(range, new_len);
         state.extras.inlays.adjust_for_edit(range, new_len);
+        if !state.extras.unnumbered_starts.is_empty() {
+            use crate::input::RopeExt as _;
+            let text = &state.text;
+            let extras = &mut state.extras;
+            extras.unnumbered_starts.retain_mut(|start| {
+                // A line whose start, or the line break before it, was
+                // deleted joins the line before it.
+                if *start > range.start && *start <= range.end {
+                    return false;
+                }
+                *start =
+                    super::decorations::adjust_following_point_for_edit(*start, range, new_len);
+                true
+            });
+            extras.unnumbered_lines = extras
+                .unnumbered_starts
+                .iter()
+                .map(|&start| text.offset_to_point(start.min(text.len())).row)
+                .collect();
+            extras.unnumbered_lines.dedup();
+        }
     }
 
     fn refresh_language_features(
@@ -273,6 +294,15 @@ impl crate::input::InputExtras for super::EditorExtras {
         self.gutter_decorations.intersecting(&[range])
     }
 
+    fn line_number_of(&self, buffer_line: usize) -> Option<usize> {
+        // `unnumbered_lines` is kept sorted and without repeats, so `before`
+        // counts those before the line, and is at most `buffer_line`.
+        match self.unnumbered_lines.binary_search(&buffer_line) {
+            Ok(_) => None,
+            Err(before) => Some(buffer_line + 1 - before),
+        }
+    }
+
     fn overview_ruler_decorations(&self) -> Vec<&super::OverviewRulerDecoration> {
         self.overview_ruler_decorations.iter().flatten().collect()
     }
@@ -313,5 +343,25 @@ impl crate::input::InputExtras for super::EditorExtras {
             self.lsp.definition_provider.is_some(),
             !self.lsp.code_action_providers.is_empty(),
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::input::InputExtras as _;
+
+    #[test]
+    fn unnumbered_lines_have_no_number_and_the_rest_count_without_them() {
+        let extras = super::super::EditorExtras {
+            unnumbered_lines: vec![1, 2, 5],
+            ..Default::default()
+        };
+        let numbers: Vec<Option<usize>> = (0..7).map(|line| extras.line_number_of(line)).collect();
+        assert_eq!(
+            numbers,
+            [Some(1), None, None, Some(2), Some(3), None, Some(4)]
+        );
+        let plain = super::super::EditorExtras::default();
+        assert_eq!(plain.line_number_of(4), Some(5));
     }
 }
