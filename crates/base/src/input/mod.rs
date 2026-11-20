@@ -43,6 +43,8 @@ pub use token_presentation::{
     InlineTokenClickEvent, InlineTokenClickListener, InlineTokenContext, InlineTokenHoverEvent,
     InlineTokenHoverListener, InlineTokenRenderer,
 };
+#[path = "base/a11y_popup.rs"]
+mod a11y_popup;
 #[path = "base/a11y_text.rs"]
 mod a11y_text;
 #[path = "base/kind.rs"]
@@ -86,6 +88,7 @@ pub(crate) fn init(cx: &mut App) {
 }
 
 pub use crate::number_input::{NumberInputEvent, NumberStep};
+pub use a11y_popup::{InputAccessibilityOption, InputAccessibilityPopup};
 pub use base::{InputBase, InputContextMenuCapabilities, InputStyles};
 pub use blink_cursor::CursorBlink;
 pub use cursor::Selection;
