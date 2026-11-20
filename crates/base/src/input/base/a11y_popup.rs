@@ -6,30 +6,36 @@
 //! editable combobox pattern: the editor's node gains the list as a `ListBox` child, says
 //! it controls that list, and names the highlighted option as its active descendant. The
 //! AccessKit adapters then report that option as focused while the editor keeps focus.
-use gpui::{SharedString, accesskit};
+use gpui::{Bounds, Pixels, SharedString, accesskit};
 
 /// A list the editor shows while it keeps the keyboard focus, given to screen readers.
 ///
 /// Set with [`InputBaseState::set_accessibility_popup`](super::InputBaseState::set_accessibility_popup)
 /// while the list is open and cleared when it closes. The editor projects it only while
-/// it has an [`InputAccessibility`](super::InputAccessibility).
+/// it has an [`InputAccessibility`](super::InputAccessibility); without one the popup is
+/// kept but not shown to screen readers. The options have no bounds of their own; give
+/// the list's with [`Self::with_bounds`] so a magnifier can follow it.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct InputAccessibilityPopup {
     label: Option<SharedString>,
     options: Vec<InputAccessibilityOption>,
     active: Option<usize>,
+    bounds: Option<Bounds<Pixels>>,
 }
 
 impl InputAccessibilityPopup {
+    /// An empty list with no label and nothing highlighted.
     pub fn new() -> Self {
         Self::default()
     }
 
+    /// The list's name, as a screen reader announces it.
     pub fn with_label(mut self, label: Option<SharedString>) -> Self {
         self.label = label;
         self
     }
 
+    /// The list's options, in the order shown.
     pub fn with_options(mut self, options: Vec<InputAccessibilityOption>) -> Self {
         self.options = options;
         self
@@ -38,6 +44,12 @@ impl InputAccessibilityPopup {
     /// The highlighted option's index; an index past the end highlights none.
     pub fn with_active(mut self, active: Option<usize>) -> Self {
         self.active = active;
+        self
+    }
+
+    /// Where the list is drawn, in window coordinates.
+    pub fn with_bounds(mut self, bounds: Option<Bounds<Pixels>>) -> Self {
+        self.bounds = bounds;
         self
     }
 
@@ -52,6 +64,10 @@ impl InputAccessibilityPopup {
     pub fn active(&self) -> Option<usize> {
         self.active.filter(|&index| index < self.options.len())
     }
+
+    pub fn bounds(&self) -> Option<Bounds<Pixels>> {
+        self.bounds
+    }
 }
 
 /// One option of an [`InputAccessibilityPopup`].
@@ -63,6 +79,7 @@ pub struct InputAccessibilityOption {
 }
 
 impl InputAccessibilityOption {
+    /// An option named `name`, as a screen reader announces it.
     pub fn new(name: impl Into<SharedString>) -> Self {
         Self {
             name: name.into(),
@@ -71,6 +88,7 @@ impl InputAccessibilityOption {
         }
     }
 
+    /// More about the option, announced after its name, such as a file's folder.
     pub fn with_description(mut self, description: Option<SharedString>) -> Self {
         self.description = description;
         self
@@ -96,12 +114,13 @@ impl InputAccessibilityOption {
 }
 
 impl InputAccessibilityPopup {
-    pub(super) fn push(&self, builder: &mut gpui::A11ySubtreeBuilder) {
+    /// `scale` is the window's scale factor: AccessKit's bounds are in physical pixels.
+    pub(super) fn push(&self, builder: &mut gpui::A11ySubtreeBuilder, scale: f32) {
         let list_id = builder.synthetic_node_id("popup");
         let option_ids: Vec<_> = (0..self.options.len())
             .map(|index| builder.synthetic_node_id(("popup-option", index)))
             .collect();
-        let (list, options) = self.nodes(&option_ids);
+        let (list, options) = self.nodes(&option_ids, scale);
         builder.push_child(list_id, list);
         // A synthetic child always joins the editor's node, so each option is pushed there
         // and then handed to the list.
@@ -112,8 +131,20 @@ impl InputAccessibilityPopup {
     }
 
     /// The list's node and its options' nodes, the list holding `option_ids` as children.
-    fn nodes(&self, option_ids: &[accesskit::NodeId]) -> (accesskit::Node, Vec<accesskit::Node>) {
+    fn nodes(
+        &self,
+        option_ids: &[accesskit::NodeId],
+        scale: f32,
+    ) -> (accesskit::Node, Vec<accesskit::Node>) {
         let mut list = accesskit::Node::new(accesskit::Role::ListBox);
+        if let Some(bounds) = self.bounds {
+            list.set_bounds(accesskit::Rect {
+                x0: f64::from(f32::from(bounds.origin.x) * scale),
+                y0: f64::from(f32::from(bounds.origin.y) * scale),
+                x1: f64::from(f32::from(bounds.origin.x + bounds.size.width) * scale),
+                y1: f64::from(f32::from(bounds.origin.y + bounds.size.height) * scale),
+            });
+        }
         if let Some(label) = &self.label {
             list.set_label(label.to_string());
         }
@@ -186,7 +217,7 @@ mod tests {
 
     #[test]
     fn the_list_holds_its_options_in_order() {
-        let (list, options) = popup(Some(1)).nodes(&IDS);
+        let (list, options) = popup(Some(1)).nodes(&IDS, 1.0);
         assert_eq!(list.role(), accesskit::Role::ListBox);
         assert_eq!(list.label(), Some("Commands"));
         assert_eq!(list.children(), IDS);
@@ -195,8 +226,20 @@ mod tests {
         assert_eq!(options[0].keyboard_shortcut(), Some("Ctrl+S"));
         assert_eq!(options[0].position_in_set(), Some(1));
         assert_eq!(options[1].size_of_set(), Some(2));
+        assert_eq!(list.bounds(), None);
         assert_eq!(options[0].is_selected(), Some(false));
         assert_eq!(options[1].is_selected(), Some(true));
+    }
+
+    #[test]
+    fn the_list_is_placed_in_physical_pixels() {
+        let bounds = gpui::Bounds::new(
+            gpui::point(gpui::px(10.), gpui::px(20.)),
+            gpui::size(gpui::px(100.), gpui::px(50.)),
+        );
+        let (list, _) = popup(None).with_bounds(Some(bounds)).nodes(&IDS, 2.0);
+        let rect = list.bounds().unwrap();
+        assert_eq!((rect.x0, rect.y0, rect.x1, rect.y1), (20., 40., 220., 140.));
     }
 
     #[test]
@@ -218,7 +261,7 @@ mod tests {
         let mut owner = accesskit::Node::new(accesskit::Role::MultilineTextInput);
         popup(Some(5)).describe_owner(&mut owner, NodeId(9), &IDS);
         assert_eq!(owner.active_descendant(), None);
-        let (_, options) = popup(Some(5)).nodes(&IDS);
+        let (_, options) = popup(Some(5)).nodes(&IDS, 1.0);
         assert!(
             options
                 .iter()

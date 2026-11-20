@@ -5344,6 +5344,7 @@ impl<M: InputModeKind> Render for InputBaseState<M> {
             .resolved(&crate::Theme::global(cx).tokens);
         let entity = cx.entity();
         let text_runs = self.accessibility_text_runs(window);
+        let scale = window.scale_factor();
         let popup = self
             .accessibility_popup
             .clone()
@@ -5393,7 +5394,7 @@ impl<M: InputModeKind> Render for InputBaseState<M> {
                                 runs.push(builder);
                             }
                             if let Some(popup) = &popup {
-                                popup.push(builder);
+                                popup.push(builder, scale);
                             }
                         })
                     })
