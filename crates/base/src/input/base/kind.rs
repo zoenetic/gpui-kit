@@ -99,11 +99,6 @@ pub trait InputExtras: Default + 'static {
         None
     }
 
-    /// Return the space between the gutter and the text.
-    fn gutter_margin(&self) -> gpui::Pixels {
-        super::element::DEFAULT_GUTTER_MARGIN
-    }
-
     /// Return the gutter decorations that touch a UTF-8 byte range, in paint
     /// order. An empty decoration touches the range when it lies inside it.
     fn gutter_decorations(&self, _range: std::ops::Range<usize>) -> Vec<&GutterDecoration> {
@@ -424,7 +419,6 @@ pub struct EditorExtras {
     pub(crate) range_decorations: DecorationCollections<RangeDecoration>,
     pub(crate) gutter_decorations: DecorationCollections<GutterDecoration>,
     pub(crate) gutter_decorations_width: gpui::Pixels,
-    pub(crate) gutter_margin: gpui::Pixels,
     /// Buffer lines drawn without a line number, sorted and without
     /// repeats, so `line_number_of` can count the ones before a line; the
     /// lines after them are numbered without them.
@@ -449,7 +443,6 @@ impl Default for EditorExtras {
             range_decorations: DecorationCollections::default(),
             gutter_decorations: DecorationCollections::default(),
             gutter_decorations_width: gpui::px(3.),
-            gutter_margin: super::element::DEFAULT_GUTTER_MARGIN,
             unnumbered_lines: Vec::new(),
             unnumbered_starts: Vec::new(),
             overview_ruler_decorations: DecorationCollections::default(),

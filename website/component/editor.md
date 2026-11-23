@@ -132,6 +132,7 @@ let editor = cx.new(|cx| {
         .folding(true)
         .show_whitespaces(true)
         .scroll_bounce(true)
+        .active_line_only_when_focused(true)
         .default_value(source)
 });
 ```
@@ -140,6 +141,21 @@ let editor = cx.new(|cx| {
 bottom and spring back with precise trackpad or Magic Mouse scrolling, as in the
 [Textarea](./textarea.md#scroll-bounce). The gutter moves with the code; the
 frame and scrollbar stay put. Ordinary mouse-wheel line scrolling does not bounce.
+
+`active_line_only_when_focused(true)` shows the active line number, the
+active-line background and the caret's fold control only while the editor or
+its context menu has focus, so that of several editors on screen only the
+focused one shows an active line.
+
+The scrollbars sit on the right and bottom edges by default. Use
+`scrollbar_placement` to move them; a vertical scrollbar on the left sits on
+the editor's left edge, over the line numbers. Like the bottom scrollbar over
+the last line, a top scrollbar overlays the first line rather than reserving
+space for itself. `set_scrollbar_placement` replaces the placement at runtime.
+
+```rust
+EditorState::new(window, cx).scrollbar_placement(ScrollbarPlacement::BottomLeft)
+```
 
 ## Manual completions
 
@@ -420,6 +436,8 @@ let ruler = editor.update(cx, |state, cx| {
   in the document, and each mark is at least 6 px tall. Touching marks with the same color in the same lane merge.
 - The marks draw under the scrollbar, whether it is Base's scrollbar or one supplied
   with `set_scrollbar_renderer`. They remain visible while the thumb fades.
+  With `scrollbar_placement` on the left, the track and its marks move to the left
+  edge; a supplied scrollbar reads the placement from `EditorScrollbarContext::placement`.
 - Without `with_color`, both collections use the editor foreground color. For
   version-control colors, read the highlight theme's Zed status keys `created`,
   `modified`, and `deleted` with `status.created(cx)`, `status.modified(cx)`, and
@@ -484,8 +502,9 @@ the same values to `prewrap`.
 
 The editor paints its code in the theme's monospace font — `mono_font_family` at
 `mono_font_size` — with rows 1.5 times the font size. That is only the default:
-a text style set on the editor refines over it, and the gutter and row height
-follow the size. The theme's platform default (`Menlo`, `Consolas`, `DejaVu Sans
+a text style set on the editor refines over it, and the row height follows the
+size. Unless gutter typography is specified separately, line numbers follow
+the body font and size too. The theme's platform default (`Menlo`, `Consolas`, `DejaVu Sans
 Mono`) is checked against the installed fonts when the theme loads and swapped
 for an installed monospace font, or `.SystemUIFont`, when it is missing; a
 family you set yourself is used as-is.
@@ -500,6 +519,61 @@ Editor::new(&editor)
 
 These are the ordinary [`Styled`](https://docs.rs/gpui/latest/gpui/trait.Styled.html)
 methods every element has, so `font_weight` and `line_height` work the same way.
+
+### Line-number style
+
+Set line-number presentation on each `Editor`, specifying only the properties
+that need to differ from its inherited defaults:
+
+```rust
+use gpui_kit::{px, rems, component::{ActiveTheme as _, input::{Editor, GutterStyle}}};
+
+// Use rems so spacing and typography scale together with interface zoom.
+Editor::new(&editor).gutter_style(
+    GutterStyle::default()
+        .with_gap(rems(0.75))
+        .with_line_number_color(cx.theme().muted_foreground)
+        .with_active_line_number_color(cx.theme().foreground)
+        .with_line_number_font_family("JetBrains Mono")
+        .with_line_number_font_size(rems(0.875)),
+);
+
+// Use pixels when the gutter must keep fixed logical-pixel dimensions.
+// These values do not scale with UI zoom.
+// GPUI resolves AbsoluteLength directly; the gutter adds no scaling logic.
+Editor::new(&editor).gutter_style(
+    GutterStyle::default()
+        .with_gap(px(12.))
+        .with_line_number_font_size(px(14.)),
+)
+```
+
+Unspecified properties use the existing editor defaults: a fixed 6px gap,
+the editor's muted/normal foreground for
+normal/current line numbers, and the body font and size. Explicit transparent
+colors are preserved. The gap separates the number/folding lane from the body.
+Line-number typography controls both measurement and painting without changing
+body typography or row height.
+
+`with_gap` and `with_line_number_font_size` accept `impl Into<AbsoluteLength>`,
+the same GPUI length type used for font sizes. `rems(...)` follows the window's
+current rem size; `px(...)` stays fixed. `rems(0.75)` matches `gap_3()` and resolves
+to 18px when the window's rem size is 24px. Readers return the configured
+`AbsoluteLength`, preserving its unit. Unspecified line-number typography
+inherits the body style directly. Use `text_size(rems(...))` or helpers such as
+`text_sm()` for body text that follows interface zoom.
+
+`GutterStyle` readers use property names, such as `gap()` and `line_number_color()`.
+Omitting `gutter_style` on a later render restores the inherited defaults.
+`GutterStyle` belongs to Component and is never stored in Base's editor state.
+Component measures the lane and shapes visible line numbers for each frame;
+Base uses those results for placement, wrapping, scrolling, and pointer mapping.
+Base-only applications can supply computed geometry and shaped labels through
+`Editor::with_line_number_renderer` and `EditorLineNumberRenderer`.
+
+Line numbers are right-aligned before the folding controls. Their lane reserves
+the widest digit in the configured font for each supported
+position, with a minimum of three positions and a maximum of seven.
 
 ## Sizes
 
