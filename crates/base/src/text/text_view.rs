@@ -3,12 +3,13 @@ use std::{ops::Range, rc::Rc, sync::Arc};
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
     AnyElement, AnyView, App, Bounds, ClickEvent, ContentMask, Element, ElementId, Entity, Global,
-    GlobalElementId, Hitbox, HitboxBehavior, InspectorElementId, InteractiveElement, IntoElement,
-    LayoutId, MouseButton, ParentElement, Pixels, Refineable as _, SharedString, StyleRefinement,
-    Styled, Window, div, point, px,
+    GlobalElementId, Hitbox, HitboxBehavior, Img, InspectorElementId, InteractiveElement,
+    IntoElement, LayoutId, MouseButton, ParentElement, Pixels, Refineable as _, SharedString,
+    Stateful, StatefulInteractiveElement as _, StyleRefinement, Styled, Window, div, point, px,
 };
 
 use crate::StyledExt;
+use crate::input::a11y_text::A11yTextRuns;
 use crate::text::TextViewFormat;
 use crate::text::markdown_ext::{MarkdownExtensions, MarkdownNode, MarkdownPlugin};
 use crate::text::node::{CodeBlock, TableData};
@@ -193,6 +194,28 @@ impl TaskToggleEvent {
 /// Kept by the element only, so unlike the handlers the state carries, it
 /// may hold a `ScrollHandle`.
 pub(crate) type RevealHandlerFn = dyn Fn(Bounds<Pixels>, &mut Window, &mut App);
+
+/// Make a linked image activate its link on primary and auxiliary clicks.
+pub(super) fn linked_image(
+    image: Stateful<Img>,
+    url: SharedString,
+    click_handler: Option<Arc<LinkClickHandlerFn>>,
+) -> Stateful<Img> {
+    let aux_url = url.clone();
+    let aux_handler = click_handler.clone();
+    image
+        .cursor_pointer()
+        .on_click(move |event, window, cx| {
+            TextSelection::end(window, cx);
+            cx.stop_propagation();
+            handle_link_click(&click_handler, url.clone(), event.clone(), window, cx);
+        })
+        .on_aux_click(move |event, window, cx| {
+            TextSelection::end(window, cx);
+            cx.stop_propagation();
+            handle_link_click(&aux_handler, aux_url.clone(), event.clone(), window, cx);
+        })
+}
 
 pub(crate) fn handle_link_click(
     handler: &Option<Arc<LinkClickHandlerFn>>,
@@ -711,6 +734,9 @@ pub struct TextViewPrepaintState {
     clip_bottom: Option<Pixels>,
     /// The touch handles this view owns, with their hitboxes.
     touch_handles: crate::TouchHandleLayout,
+    /// The rendered text for the accessibility tree, captured only while an
+    /// assistive client is connected.
+    a11y_text_runs: Option<Rc<A11yTextRuns>>,
 }
 
 /// Absorbs sub-pixel layout jitter: a line ending within a pixel of the box
@@ -805,6 +831,22 @@ impl Element for TextView {
 
     fn source_location(&self) -> Option<&'static std::panic::Location<'static>> {
         None
+    }
+
+    /// A document whose text runs carry the rendered body, so a screen reader
+    /// reads the text itself and not only the controls inside it.
+    fn a11y_role(&self) -> Option<gpui::Role> {
+        Some(gpui::Role::Document)
+    }
+
+    fn a11y_synthetic_children(
+        &mut self,
+        prepaint: &mut Self::PrepaintState,
+        builder: &mut gpui::A11ySubtreeBuilder,
+    ) {
+        if let Some(runs) = &prepaint.a11y_text_runs {
+            runs.push(builder);
+        }
     }
 
     fn request_layout(
@@ -1062,10 +1104,18 @@ impl Element for TextView {
         } else {
             crate::TouchHandleLayout::default()
         };
+        let a11y_text_runs = window
+            .is_a11y_active()
+            .then(|| {
+                let scale = window.scale_factor();
+                state.update(cx, |state, _| state.accessibility_text_runs(scale))
+            })
+            .flatten();
         TextViewPrepaintState {
             hitbox,
             clip_bottom,
             touch_handles,
+            a11y_text_runs,
         }
     }
 
@@ -2437,6 +2487,97 @@ mod tests {
         assert!(
             inline_bounds[1].left() - inline_bounds[0].right() < px(40.),
             "unloaded inline image fallback should stay generic and compact"
+        );
+    }
+
+    struct ImageSourceTestRoot {
+        text_view: Entity<TextViewState>,
+        image_source: Arc<dyn Fn(&gpui::SharedUri) -> gpui::ImageSource + Send + Sync>,
+    }
+
+    impl ImageSourceTestRoot {
+        fn new(
+            markdown: &str,
+            image_source: Arc<dyn Fn(&gpui::SharedUri) -> gpui::ImageSource + Send + Sync>,
+            cx: &mut Context<Self>,
+        ) -> Self {
+            Self {
+                text_view: cx.new(|cx| TextViewState::markdown(markdown, cx)),
+                image_source,
+            }
+        }
+    }
+
+    impl Render for ImageSourceTestRoot {
+        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+            let image_source = self.image_source.clone();
+            div().w(px(420.)).child(
+                TextView::new(&self.text_view)
+                    .selectable(true)
+                    .image_source(move |uri| image_source(uri)),
+            )
+        }
+    }
+
+    /// An image without a size shares its paragraph with text and is drawn at
+    /// its own size, as a browser draws `<img>` — not shrunk to a line-height
+    /// square (#3707). The image source resolves synchronously
+    /// (`test_support::image_override`), so the drawn size is deterministic:
+    /// the same assertions raced the image decoder when they ran against a
+    /// data URL.
+    #[gpui::test]
+    fn inline_image_without_size_is_drawn_at_its_intrinsic_size(cx: &mut TestAppContext) {
+        use crate::test_support::sized_image_source;
+
+        cx.update(crate::init);
+        let image_source = Arc::new(sized_image_source(200, 60));
+        let (content, cx) = cx.add_window_view(|_, cx| {
+            ImageSourceTestRoot::new("Before ![dot](test://dot) after", image_source, cx)
+        });
+        let cx: &mut VisualTestContext = cx;
+
+        cx.run_until_parked();
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+
+        let inline_bounds = content.read_with(cx, |content, cx| {
+            content.text_view.read(cx).selection_adapter.text_bounds()
+        });
+        assert_eq!(inline_bounds.len(), 2);
+        assert_eq!(
+            inline_bounds[0].top(),
+            inline_bounds[1].top(),
+            "text before and after the image share its line"
+        );
+        let gap = inline_bounds[1].left() - inline_bounds[0].right();
+        assert!(
+            gap > px(180.),
+            "the image reserves its intrinsic width, not a line-height placeholder; gap {gap:?}"
+        );
+    }
+
+    /// An image wider than the view is narrowed to the wrap width, so the
+    /// text after it wraps to the next line instead of overflowing (#3707).
+    #[gpui::test]
+    fn inline_image_wider_than_the_view_wraps_the_text_after_it(cx: &mut TestAppContext) {
+        use crate::test_support::sized_image_source;
+
+        cx.update(crate::init);
+        let image_source = Arc::new(sized_image_source(600, 60));
+        let (content, cx) = cx.add_window_view(|_, cx| {
+            ImageSourceTestRoot::new("Before ![wide](test://wide) after", image_source, cx)
+        });
+        let cx: &mut VisualTestContext = cx;
+
+        cx.run_until_parked();
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+
+        let inline_bounds = content.read_with(cx, |content, cx| {
+            content.text_view.read(cx).selection_adapter.text_bounds()
+        });
+        assert_eq!(inline_bounds.len(), 2);
+        assert!(
+            inline_bounds[1].top() > inline_bounds[0].top(),
+            "text after an image wider than the view wraps to the next line"
         );
     }
 
