@@ -2971,7 +2971,10 @@ impl<M: InputModeKind, R: EditorLineNumberRenderer> TextElement<M, R> {
                     || first_display_row
                         .is_none_or(|first| shaped_display_rows.contains(&(first + wi)));
                 if !near_viewport {
-                    wrapped_lines.push(InputLine::unshaped(range.len()));
+                    // The same cut a shaped row gets, so a row's length doesn't depend on
+                    // where the viewport is.
+                    let drawn = drawn_part(&line_text, range.clone());
+                    wrapped_lines.push(InputLine::unshaped(drawn.len()));
                     continue;
                 }
                 let range = drawn_part(&line_text, range.clone());
@@ -4624,6 +4627,10 @@ const MAX_DRAWN_LINE_CHARS: usize = 10_000;
 
 /// `range` of `line`, cut to its first [`MAX_DRAWN_LINE_CHARS`] characters.
 fn drawn_part(line: &str, range: Range<usize>) -> Range<usize> {
+    // A character is at least one byte, so a range this short is never cut.
+    if range.len() <= MAX_DRAWN_LINE_CHARS {
+        return range;
+    }
     match line[range.clone()].char_indices().nth(MAX_DRAWN_LINE_CHARS) {
         Some((end, _)) => range.start..range.start + end,
         None => range,
@@ -4906,6 +4913,13 @@ mod tests {
             drawn_part(&long, 2..long.len()),
             2..2 + MAX_DRAWN_LINE_CHARS * "é".len()
         );
+        // The cut counts characters, not bytes, on both sides of the limit.
+        let ascii = "a".repeat(MAX_DRAWN_LINE_CHARS + 1);
+        assert_eq!(
+            drawn_part(&ascii, 0..MAX_DRAWN_LINE_CHARS),
+            0..MAX_DRAWN_LINE_CHARS
+        );
+        assert_eq!(drawn_part(&ascii, 0..ascii.len()), 0..MAX_DRAWN_LINE_CHARS);
     }
 
     #[test]
