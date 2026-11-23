@@ -47,24 +47,29 @@ impl InputAccessibilityPopup {
         self
     }
 
-    /// Where the list is drawn, in window coordinates.
+    /// Where the list is drawn, in window coordinates. It is a snapshot: set the popup
+    /// again when the list moves or resizes.
     pub fn with_bounds(mut self, bounds: Option<Bounds<Pixels>>) -> Self {
         self.bounds = bounds;
         self
     }
 
+    /// The list's name.
     pub fn label(&self) -> Option<&SharedString> {
         self.label.as_ref()
     }
 
+    /// The list's options, in the order shown.
     pub fn options(&self) -> &[InputAccessibilityOption] {
         &self.options
     }
 
+    /// The highlighted option's index, or None when none is or the index is past the end.
     pub fn active(&self) -> Option<usize> {
         self.active.filter(|&index| index < self.options.len())
     }
 
+    /// Where the list is drawn, in window coordinates.
     pub fn bounds(&self) -> Option<Bounds<Pixels>> {
         self.bounds
     }
@@ -100,14 +105,17 @@ impl InputAccessibilityOption {
         self
     }
 
+    /// The option's name.
     pub fn name(&self) -> &SharedString {
         &self.name
     }
 
+    /// More about the option, announced after its name.
     pub fn description(&self) -> Option<&SharedString> {
         self.description.as_ref()
     }
 
+    /// The option's key binding, as a screen reader speaks it.
     pub fn shortcut(&self) -> Option<&SharedString> {
         self.shortcut.as_ref()
     }
@@ -221,12 +229,12 @@ mod tests {
         assert_eq!(list.role(), accesskit::Role::ListBox);
         assert_eq!(list.label(), Some("Commands"));
         assert_eq!(list.children(), IDS);
+        assert_eq!(list.bounds(), None);
         assert_eq!(options[0].label(), Some("Save"));
         assert_eq!(options[0].description(), Some("File"));
         assert_eq!(options[0].keyboard_shortcut(), Some("Ctrl+S"));
         assert_eq!(options[0].position_in_set(), Some(1));
         assert_eq!(options[1].size_of_set(), Some(2));
-        assert_eq!(list.bounds(), None);
         assert_eq!(options[0].is_selected(), Some(false));
         assert_eq!(options[1].is_selected(), Some(true));
     }
