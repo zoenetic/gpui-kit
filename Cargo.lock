@@ -4365,6 +4365,7 @@ dependencies = [
  "jiff",
  "lsp-types 0.97.0",
  "raw-window-handle",
+ "serde_json",
  "smallvec",
  "windows 0.62.2",
 ]

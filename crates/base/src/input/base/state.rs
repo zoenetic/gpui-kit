@@ -569,6 +569,7 @@ pub struct InputBaseState<M: InputModeKind> {
     pub(super) fold_placeholder_renderer: Option<FoldPlaceholderRenderer>,
     pub(super) fold_background: Option<Hsla>,
     pub(super) accessibility: Option<InputAccessibility>,
+    accessibility_popup: Option<super::InputAccessibilityPopup>,
     /// What paints in place of Base's editor scrollbar, when a consumer
     /// supplies its own.
     pub(super) scrollbar_renderer: Option<crate::input::EditorScrollbarRenderer>,
@@ -1071,6 +1072,7 @@ impl<M: InputModeKind> InputBaseState<M> {
             fold_placeholder_renderer: None,
             fold_background: None,
             accessibility: None,
+            accessibility_popup: None,
             scrollbar_renderer: None,
             diagnostic_popover: None,
             context_menu_handler: None,
@@ -1189,6 +1191,19 @@ impl<M: InputModeKind> InputBaseState<M> {
     /// Project semantics onto the editor, never onto a second focus owner.
     pub fn set_accessibility(&mut self, accessibility: InputAccessibility) {
         self.accessibility = Some(accessibility);
+    }
+
+    /// Give screen readers a list shown while the editor keeps the keyboard focus, such as
+    /// completions, or `None` once it closes. See [`super::InputAccessibilityPopup`].
+    pub fn set_accessibility_popup(
+        &mut self,
+        popup: Option<super::InputAccessibilityPopup>,
+        cx: &mut Context<Self>,
+    ) {
+        if self.accessibility_popup != popup {
+            self.accessibility_popup = popup;
+            cx.notify();
+        }
     }
 
     fn handle_accessibility_focus(&self, window: &mut Window, cx: &mut Context<Self>) {
@@ -5539,6 +5554,11 @@ impl<M: InputModeKind> InputBaseState<M> {
             })
             .then(|| self.text.to_string());
         let text_runs = self.accessibility_text_runs(exposed_text.as_deref(), window);
+        let scale = window.scale_factor();
+        let popup = self
+            .accessibility_popup
+            .clone()
+            .filter(|_| window.is_a11y_active() || cfg!(feature = "test-support"));
         if self._pending_update {
             self.mode.update_highlighter::<M>(
                 super::mode::HighlighterUpdate {
@@ -5573,8 +5593,15 @@ impl<M: InputModeKind> InputBaseState<M> {
                         this.accessibility_id(id)
                     })
                     .when_some(exposed_text, |this, text| this.aria_value(text))
-                    .when_some(text_runs, |this, runs| {
-                        this.a11y_synthetic_children(move |builder| runs.push(builder))
+                    .when(text_runs.is_some() || popup.is_some(), |this| {
+                        this.a11y_synthetic_children(move |builder| {
+                            if let Some(runs) = text_runs {
+                                runs.push(builder);
+                            }
+                            if let Some(popup) = &popup {
+                                popup.push(builder, scale);
+                            }
+                        })
                     })
                     .on_a11y_action(gpui::AccessibleAction::Focus, {
                         let entity = entity.clone();
