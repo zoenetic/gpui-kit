@@ -1,17 +1,23 @@
-//! A list shown beside an editor that keeps the keyboard focus, as an AccessKit list box.
+//! A list shown beside an element that keeps the keyboard focus, as an AccessKit list box.
 //!
 //! A completion list or a command palette opened over an editor leaves the focus in the
 //! editor, so the caret stays visible and typing still edits or filters. A screen reader
 //! follows the focus, though, so it would never read the list. This follows the WAI-ARIA
-//! editable combobox pattern: the editor's node gains the list as a `ListBox` child, says
-//! it controls that list, and names the highlighted option as its active descendant. The
-//! AccessKit adapters then report that option as focused while the editor keeps focus.
+//! editable combobox pattern: the focused element's node gains the list as a `ListBox`
+//! child, says it controls that list, and names the highlighted option as its active
+//! descendant. The AccessKit adapters then report that option as focused while the element
+//! keeps focus. An editor does this itself; any other focused element can with [`push`].
+//!
+//! [`push`]: InputAccessibilityPopup::push
 use gpui::{Bounds, Pixels, SharedString, accesskit};
 
-/// A list the editor shows while it keeps the keyboard focus, given to screen readers.
+/// A list shown while an editor or another element keeps the keyboard focus, given to
+/// screen readers.
 ///
-/// Set with [`InputBaseState::set_accessibility_popup`](super::InputBaseState::set_accessibility_popup)
-/// while the list is open and cleared when it closes. The editor projects it only while
+/// On an editor, set it with
+/// [`InputBaseState::set_accessibility_popup`](super::InputBaseState::set_accessibility_popup)
+/// while the list is open and clear it when it closes. On another focusable element, call
+/// [`Self::push`] from the element's synthetic children. An editor projects it only while
 /// it has an [`InputAccessibility`](super::InputAccessibility); without one the popup is
 /// kept but not shown to screen readers. The options have no bounds of their own; give
 /// the list's with [`Self::with_bounds`] so a magnifier can follow it.
@@ -122,8 +128,12 @@ impl InputAccessibilityOption {
 }
 
 impl InputAccessibilityPopup {
-    /// `scale` is the window's scale factor: AccessKit's bounds are in physical pixels.
-    pub(super) fn push(&self, builder: &mut gpui::A11ySubtreeBuilder, scale: f32) {
+    /// Adds the list under the node `builder` builds children for, and points that node at
+    /// the list and its highlighted option. Call it from
+    /// [`a11y_synthetic_children`](gpui::StatefulInteractiveElement::a11y_synthetic_children)
+    /// of the element holding the keyboard focus, which needs an id and a role to have a
+    /// node. `scale` is the window's scale factor: AccessKit's bounds are in physical pixels.
+    pub fn push(&self, builder: &mut gpui::A11ySubtreeBuilder, scale: f32) {
         let list_id = builder.synthetic_node_id("popup");
         let option_ids: Vec<_> = (0..self.options.len())
             .map(|index| builder.synthetic_node_id(("popup-option", index)))
@@ -181,7 +191,7 @@ impl InputAccessibilityPopup {
         (list, options)
     }
 
-    /// Point the editor's node at the list and its highlighted option.
+    /// Point the focused element's node at the list and its highlighted option.
     fn describe_owner(
         &self,
         owner: &mut accesskit::Node,
